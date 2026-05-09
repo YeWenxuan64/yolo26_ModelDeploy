@@ -1,0 +1,3 @@
+[submodule "models_convert/original/ultralytics"]
+	path = models_convert/original/ultralytics
+	url = https://github.com/ultralytics/ultralytics.git
