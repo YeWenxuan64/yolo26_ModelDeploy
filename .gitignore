@@ -1,0 +1,16 @@
+/.vscode
+__pycache__/*
+
+
+
+/*/models_convert/*/*.onnx
+
+
+*.pyc
+*.zip
+*.tar
+*.bin
+*.rknn
+*.onnx
+*.pt
+*.mp4
