@@ -1,3 +1,6 @@
 [submodule "models_convert/original/ultralytics"]
 	path = models_convert/original/ultralytics
 	url = https://github.com/ultralytics/ultralytics.git
+[submodule "Edge_Inferencer"]
+	path = Edge_Inferencer
+	url = https://github.com/YeWenxuan64/Edge_Inferencer.git
