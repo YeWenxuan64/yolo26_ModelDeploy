@@ -2,8 +2,9 @@ import os
 import sys
 import re
 import yaml
-import pathlib
 import argparse
+import pathlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import onnx
@@ -11,17 +12,28 @@ import onnxslim
 from onnxslim.utils import summarize_model, print_model_info_as_table
 
 
-current_path = os.path.dirname(os.path.abspath(__file__)) # 获取当前脚本所在目录的绝对路径
-sys.path.insert(0, os.path.dirname(current_path))
 
-project_root = os.path.join(current_path, 'models_convert/original/ultralytics')
-sys.path.insert(0, project_root)
-print(project_root)
 
-# 定义一个上下文管理器以安全地更改目录
+current_dir = Path(__file__).resolve().parent # 获取当前脚本所在目录的绝对路径
+project_root = current_dir / 'models_convert/original/ultralytics'
+
+
+# 定义上下文管理器以安全地更改目录
+class temporary_sys_path:
+    def __init__(self, new_path: str):
+        self.new_path = str(new_path)
+        
+    def __enter__(self):
+        sys.path.insert(0, self.new_path)
+        return self
+        
+    def __exit__(self, etype, value, traceback):
+        if self.new_path in sys.path:
+            sys.path.remove(self.new_path)
+
 class temporary_chdir:
     def __init__(self, new_path):
-        self.new_path = new_path
+        self.new_path = str(new_path)
         self.saved_path = None
         
     def __enter__(self):
@@ -30,6 +42,13 @@ class temporary_chdir:
         
     def __exit__(self, etype, value, traceback):
         os.chdir(self.saved_path)     # 无论代码块是否报错，都恢复原来的目录
+
+
+sys.path.append(str(current_dir))
+sys.path.append(str(project_root))
+with temporary_sys_path(current_dir):
+    from models_convert.original.ultralytics.ultralytics import YOLO
+
 
 def load_config(config_path):
 
@@ -127,37 +146,64 @@ def load_config(config_path):
     return config
 
 
-try:
-    from models_convert.original.ultralytics.ultralytics import YOLO
 
-except Exception as e:
-    from ultralytics import YOLO
+def set_config(config, task:str, model:str, imgsz:list[int,int], batch:int=1, max_det:int=300):
+    """
+    Set the configuration for the YOLO model.
 
-yolo_config_path = os.path.join(current_path, 'config/yolo26s_[320,640]_cfg.yaml')
-yolo_pose_config_path = os.path.join(current_path, 'config/yolo26s-pose_[320,640]_cfg.yaml')
+    Args:
+        task (str): The task for the YOLO model, e.g. "detect", "segment", "classify", "pose", "obb".
+        model (str): The path to the pytorch model file.
+        imgsz (list): The image size [h,w] for the model, e.g. [320, 640].
+        batch (int): The batch size for the model.
+        max_det (int): The maximum number of detections per image.
+    """
+
+    config.task = task          # (str) YOLO task, i.e. detect, segment, classify, pose, obb
+    config.mode = "export"      # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
+    # Train settings
+    config.model = model        # (str, optional) path to model file, i.e. yolov8n.pt or yolov8n.yaml
+    config.batch = batch        # (int | float) batch size as int (e.g. 16), or float 0.0–1.0 for AutoBatch fraction of GPU memory
+    config.imgsz = imgsz        # (int | list) train/val use int (square); predict/export may use [h,w]
+    # Val/Test settings
+    config.max_det = max_det    # (int) maximum number of detections per image
+    # Export settings
+    config.format = "onnx"      # (str) target format, e.g. torchscript|onnx|openvino|engine|coreml|saved_model|pb|tflite|edgetpu|tfjs|paddle|mnn|ncnn|imx|rknn|executorch|axelera
+    config.simplify = False     # (bool) ONNX/engine only; run graph simplifier for cleaner ONNX before runtime conversion
+    config.opset = 13           # (int, optional) ONNX/engine only; opset version for export; leave unset to use a tested default
+
+    return config
 
 
-yolo_onnx_path = os.path.join(current_path, 'models_convert/original/yolo26s.onnx')
-yolo_onnx_output_path = os.path.join(current_path, 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
 
-yolo_pose_onnx_path = os.path.join(current_path, 'models_convert/original/yolo26s-pose.onnx')
-yolo_pose_onnx_output_path = os.path.join(current_path, 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
+
+
+yolo_config_path = str(project_root / 'ultralytics/cfg/default.yaml')
+
+yolo_onnx_path = str(current_dir / 'models_convert/original/yolo26s.onnx')
+yolo_onnx_output_path = str(current_dir / 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
+
+yolo_pose_onnx_path = str(current_dir / 'models_convert/original/yolo26s-pose.onnx')
+yolo_pose_onnx_output_path = str(current_dir / 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
 
 
 def export(yolo_type:str="yolo"):
     if yolo_type == "yolo":
-        config_path = yolo_config_path
+        pth_path = "./models_convert/original/yolo26s.pt"
+        task = "detect"
 
     elif yolo_type == "yolo-pose":
-        config_path = yolo_pose_config_path
+        pth_path = "./models_convert/original/yolo26s-pose.pt"
+        task = "pose"
 
     else:
         raise ValueError("yolo_type must be 'yolo', 'yolo-pose'")
     print(f"Exporting model: {yolo_type}")
 
-    config = load_config(config_path)
+    config = load_config(yolo_config_path)
+    config = set_config(config, task=task, model=pth_path, imgsz=[320, 640], batch=1, max_det=256)
 
-    with temporary_chdir(current_path):
+    with temporary_chdir(current_dir):
         model = YOLO(config.model)
         model.export(**vars(config))
 

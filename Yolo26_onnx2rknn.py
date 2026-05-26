@@ -1,31 +1,30 @@
-import os
 import sys
 import argparse
+from pathlib import Path
 
-current_path = os.path.dirname(os.path.abspath(__file__))
-current_path = os.path.abspath(current_path)
-
-sys.path.insert(0, os.path.dirname(current_path))
+current_dir = Path(__file__).resolve().parent
+parent_dir = current_dir.parent
+sys.path.append(str(current_dir))
 
 from utilities.onnx_to_rknn import OnnxToRKNN
 
 
 
 # 模型文件路径
-YOLO26_MODEL_PATH = os.path.join(current_path, 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
-YOLO26_POSE_MODEL_PATH = os.path.join(current_path, 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
+YOLO26_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
+YOLO26_POSE_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
 
 # 导出路径
-YOLO26_RKNN_MODEL = os.path.join(current_path, 'models_convert/rknn/yolo26s_i8[1,320,640,3].rknn')
-YOLO26_POSE_RKNN_MODEL = os.path.join(current_path, 'models_convert/rknn/yolo26s-pose_i8[1,320,640,3].rknn')
+YOLO26_RKNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s_i8[1,320,640,3].rknn')
+YOLO26_POSE_RKNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s-pose_i8[1,320,640,3].rknn')
 
-DATASET_PATH = os.path.join(os.path.dirname(current_path), 'datasets/datasets.txt')
+DATASET_PATH = str(parent_dir / 'datasets/datasets.txt')
 
 TARGET_PLATFORM = 'rk3588'
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='YOLO model converter')
+    parser = argparse.ArgumentParser(description='YOLO model egde converter')
 
     parser.add_argument(
         '--yolo_type', 
