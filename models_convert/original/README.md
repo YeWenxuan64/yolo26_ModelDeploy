@@ -18,3 +18,7 @@ original(current directory)/
 |   └── ...
 └── README.md # you are here
 ```
+
+## License
+ultralytics/ultralytics仓库的许可证：
+[AGPL-3.0](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)

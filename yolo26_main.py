@@ -84,7 +84,7 @@ class Yolo26:
         filtered_class_ids = class_ids[mask]
         
         if len(filtered_boxes) == 0:
-            return []
+            return None
         
         idxs = np.argsort(filtered_scores, axis=0)[::-1]  # 按置信度降序排序
         filtered_boxes = filtered_boxes[idxs]
@@ -95,7 +95,7 @@ class Yolo26:
 
         return results
 
-    def yolo26_detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
+    def detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
         """
         Args:
             color_image: np.arraylike(h, w, 3)
@@ -200,7 +200,7 @@ if __name__ == '__main__':
         rgb_frame_resized, scale, offsets = resize_image(rgb_frame, (640, 320))
 
         start_time = time.time()
-        detect_result = yolo26.yolo26_detect(rgb_frame_resized)
+        detect_result = yolo26.detect(rgb_frame_resized)
         end_time = time.time()
 
         time_list.append(end_time - start_time)

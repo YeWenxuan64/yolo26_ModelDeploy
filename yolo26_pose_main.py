@@ -88,7 +88,7 @@ class Yolo26Pose:
         boxes = output[:, :4]  # (N, 4)
         scores = output[:, 4]  # (N,)
         class_ids = output[:, 5]  # (N,)
-        keypoints = output[:, 6:]  # 关键点数据 (N, 51)
+        keypoints = output[:, 6:57]  # 关键点数据 (N, 51)
 
         # 应用置信度阈值过滤
         mask = scores > self.conf_threshold
@@ -98,7 +98,7 @@ class Yolo26Pose:
         filtered_kpts = keypoints[mask]
         
         if len(filtered_boxes) == 0:
-            return []
+            return None
         
         idxs = np.argsort(filtered_scores, axis=0)[::-1]  # 按置信度降序排序
         filtered_boxes = filtered_boxes[idxs]
@@ -110,7 +110,7 @@ class Yolo26Pose:
 
         return results
 
-    def yolo26pose_detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
+    def detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
         """
         Args:
             color_image: np.arraylike(h, w, 3)
@@ -249,7 +249,7 @@ if __name__ == '__main__':
         rgb_frame_resized, scale, offsets = resize_image(rgb_frame, (640, 320))
 
         start_time = time.time()
-        detect_result = yolo26pose.yolo26pose_detect(rgb_frame_resized)
+        detect_result = yolo26pose.detect(rgb_frame_resized)
         end_time = time.time()
 
         time_list.append(end_time - start_time)

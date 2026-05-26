@@ -16,8 +16,8 @@ YOLO26_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s_[1,3,320,640]
 YOLO26_POSE_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
 
 # 导出路径
-YOLO26_QNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s_i8[1,320,640,3].bin')
-YOLO26_POSE_QNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s-pose_i8[1,320,640,3].bin')
+YOLO26_QNN_MODEL = str(current_dir / 'models_convert/qnn/yolo26s_i8[1,320,640,3].bin')
+YOLO26_POSE_QNN_MODEL = str(current_dir / 'models_convert/qnn/yolo26s-pose_i8[1,320,640,3].bin')
 
 DATASET_PATH = str(parent_dir / 'datasets/datasets.txt')
 
