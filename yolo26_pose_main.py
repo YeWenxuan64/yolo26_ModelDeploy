@@ -28,25 +28,34 @@ with temporary_sys_path(current_dir.parent):
 
 
 
-CLASSES = ("person", "bicycle", "car","motorbike","aeroplane","bus","train","truck","boat","traffic light",
-           "fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant",
-           "bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite",
-           "baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife ",
-           "spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","sofa",
-           "pottedplant","bed","diningtable","toilet","tvmonitor","laptop","mouse","remote ","keyboard ","cell phone","microwave",
-           "oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier", "toothbrush")
+CLASSES = ("person",)
+COLOR_LIST = [(4, 42, 255)]
 
-COCO_ID_LIST = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-                35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-                64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
+POSE_PALETTE = [(255, 128, 0), (255, 153, 51), (255, 178, 102), (230, 230, 0), (255, 153, 255),
+                (153, 204, 255), (255, 102, 255), (255, 51, 255), (102, 178, 255), (51, 153, 255),
+                (255, 153, 153), (255, 102, 102), (255, 51, 51), (153, 255, 153), (102, 255, 102),
+                (51, 255, 51), (0, 255, 0), 
+                (0, 0, 255), (255, 0, 0), (255, 255, 255)]
 
-COLOR_LIST = [(4, 42, 255), (11, 219, 235), (243, 243, 243), (0, 223, 183), (17, 31, 104), (255, 111, 221), (255, 68, 79), (204, 237, 0), (0, 243, 68), (189, 0, 255),
-              (0, 180, 255), (221, 0, 186), (0, 255, 255), (38, 192, 0), (1, 255, 179), (125, 36, 255), (123, 0, 104), (255, 27, 108), (252, 109, 47), (162, 255, 11),
-              (255, 128, 0), (255, 153, 51), (255, 178, 102), (230, 230, 0), (255, 153, 255), (153, 204, 255), (255, 102, 255), (255, 51, 255), (102, 178, 255), (51, 153, 255),
-              (255, 153, 153), (255, 102, 102), (255, 51, 51), (153, 255, 153), (102, 255, 102), (51, 255, 51), (0, 255, 0), (0, 0, 255), (255, 0, 0), (216, 216, 216)]
+KEYPOINTS_COLOR = [POSE_PALETTE[i] for i in [16, 16, 16, 16, 16, 9, 9, 9, 9, 9, 9, 0, 0, 0, 0, 0, 0]]
+
+LIMBS_COLOR = [POSE_PALETTE[i] for i in [16, 16, 16, 16, 9, 9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0]]
 
 
-class Yolo26:
+# COCO 17个关键点的骨骼连线定义 (索引从0开始)
+# 0鼻子, 1左眼, 2右眼, 3左耳, 4右耳
+# 5左肩, 6右肩, 7左肘, 8右肘, 9左腕, 10右腕, 11左髋关节, 12右髋关节
+# 13左膝, 14右膝, 15左脚踝, 16右脚踝
+SKELETONS = [(0, 1), (0, 2), (1, 3), (2, 4),          # 头部
+            (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), # 上半身
+            (5, 11), (6, 12), (11, 12),              # 躯干
+            (11, 13), (13, 15), (12, 14), (14, 16)]  # 下半身
+
+
+
+
+
+class Yolo26Pose:
     def __init__(self, model_path:str, cores:tuple[int]=(0, 1), conf_threshold:float=0.25, need_preprocess:bool=False):
         """
         args:
@@ -58,30 +67,35 @@ class Yolo26:
         self.conf_threshold = conf_threshold # 0.25
         self.need_preprocess = need_preprocess
         
-        self.CLASSES = CLASSES
+        self.classes = CLASSES
         self.color_list = COLOR_LIST
+        self.keypoints_color = KEYPOINTS_COLOR
+        self.limbs_color = LIMBS_COLOR
+        self.skeletons = SKELETONS
         
-        self.output_shape = (-1, 6)
-        self.yolo26_infer = AIInferencer(self.model_path, self.cores, pool_mode=True)
+        self.output_shape = (-1, 57)
+        self.yolo26pose_infer = AIInferencer(self.model_path, self.cores, pool_mode=True)
 
     def preprocess(self, color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
         return color_float
 
     def post_process(self, infer_output:list[np.ndarray]) -> np.ndarray|None:
-        # 输出形状为 (1, 300, 6)
-        output = infer_output[0].reshape(self.output_shape)  # 移除批次维度，形状变为 (300, 6)
+        # 输出形状为 (1, N, 57)
+        output = infer_output[0].reshape(self.output_shape)  # 移除批次维度，形状变为 (N, 57)
 
         # 分离边界框坐标、类别ID和分数
-        boxes = output[:, :4]  # (300, 4)
-        scores = output[:, 4]  # (300,)
-        class_ids = output[:, 5]  # (300,)
+        boxes = output[:, :4]  # (N, 4)
+        scores = output[:, 4]  # (N,)
+        class_ids = output[:, 5]  # (N,)
+        keypoints = output[:, 6:]  # 关键点数据 (N, 51)
 
         # 应用置信度阈值过滤
         mask = scores > self.conf_threshold
         filtered_boxes = boxes[mask]
         filtered_scores = scores[mask]
         filtered_class_ids = class_ids[mask]
+        filtered_kpts = keypoints[mask]
         
         if len(filtered_boxes) == 0:
             return []
@@ -90,19 +104,20 @@ class Yolo26:
         filtered_boxes = filtered_boxes[idxs]
         filtered_scores = filtered_scores[idxs]
         filtered_class_ids = filtered_class_ids[idxs]
+        filtered_kpts = filtered_kpts[idxs]
 
-        results = np.hstack((filtered_boxes, np.vstack(filtered_class_ids), np.vstack(filtered_scores)), dtype=np.float32)
+        results = np.hstack((filtered_boxes, np.vstack(filtered_class_ids), np.vstack(filtered_scores), filtered_kpts), dtype=np.float32)
 
         return results
 
-    def yolo26_detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
+    def yolo26pose_detect(self, color_image:np.ndarray, block:bool=True) -> np.ndarray|None:
         """
         Args:
             color_image: np.arraylike(h, w, 3)
             block: bool, if True, block until get result
 
         Returns:
-            np.arraylike(n, 6) [[x1, y1, x2, y2, class, score]...]
+            np.arraylike(n, 57) [[x1, y1, x2, y2, class, score, kpt1_x, kpt1_y, kpt1_conf ...]...]
         """
 
         if self.need_preprocess:
@@ -110,8 +125,8 @@ class Yolo26:
 
         input_data = np.expand_dims(color_image, axis=0) # 添加batch维度
 
-        self.yolo26_infer.inferfacer.put([input_data])
-        outputs = self.yolo26_infer.inferfacer.get(block=block)
+        self.yolo26pose_infer.inferfacer.put([input_data])
+        outputs = self.yolo26pose_infer.inferfacer.get(block=block)
 
         detect_result = None
         if outputs is not None:
@@ -120,28 +135,62 @@ class Yolo26:
         return detect_result
 
     def release(self):
-        ret = self.yolo26_infer.release()
+        ret = self.yolo26pose_infer.release()
         if ret:
-            print('Yolo26 Released')
+            print('Yolo26 Pose Released')
 
 
-def draw_yolo(image:np.ndarray, detect_result:np.ndarray, scale:float=1.0, offset:tuple[int, int]=(0, 0)):
+def draw_yolo_pose(image:np.ndarray, detect_result:np.ndarray, scale:float=1.0, offset:tuple[int, int]=(0, 0)):
     for i in range(detect_result.shape[0]):
+        # 解析 BBox 和 基础信息
         x1, y1, x2, y2, class_id, score = detect_result[i, :6]
         x1 = int((x1 - offset[0]) / scale)
         y1 = int((y1 - offset[1]) / scale)
         x2 = int((x2 - offset[0]) / scale)
         y2 = int((y2 - offset[1]) / scale)
-
+        
         class_id = min(int(class_id), len(CLASSES) - 1)
         score = float(score)
-
         class_name = CLASSES[class_id]
-        rgb_color = COLOR_LIST[class_id % len(COLOR_LIST)]
-        bgr_color = (rgb_color[2], rgb_color[1], rgb_color[0])
+        
+        bbox_rgb_color = COLOR_LIST[class_id % len(COLOR_LIST)]
+        bbox_bgr_color = (bbox_rgb_color[2], bbox_rgb_color[1], bbox_rgb_color[0])
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), bgr_color, 2)
-        cv2.putText(image, f'{class_name} {score:.2f}', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, bgr_color, 2)
+        # 1. 画边界框
+        cv2.rectangle(image, (x1, y1), (x2, y2), bbox_bgr_color, 2)
+        cv2.putText(image, f'{class_name} {score:.2f}', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, bbox_bgr_color, 2)
+
+        # 2. 解析关键点 (17, 3) -> [x, y, conf]
+        kpts = detect_result[i, 6:].reshape(-1, 3)
+        
+        # 3. 画骨骼连线
+        for sk_id, sk in enumerate(SKELETONS):
+            pos1_idx, pos2_idx = sk[0], sk[1]
+            conf1, conf2 = kpts[pos1_idx, 2], kpts[pos2_idx, 2]
+            
+            # if conf1 > kpt_thr and conf2 > kpt_thr:
+            px1 = int((kpts[pos1_idx, 0] - offset[0]) / scale)
+            py1 = int((kpts[pos1_idx, 1] - offset[1]) / scale)
+            px2 = int((kpts[pos2_idx, 0] - offset[0]) / scale)
+            py2 = int((kpts[pos2_idx, 1] - offset[1]) / scale)
+
+   
+            skeleton_color = LIMBS_COLOR[sk_id % len(KEYPOINTS_COLOR)]
+            bgr_color = (skeleton_color[2], skeleton_color[1], skeleton_color[0])
+            
+            cv2.line(image, (px1, py1), (px2, py2), bgr_color, 2)
+        
+        # 4. 画关键点圆圈
+        for kpt_id in range(len(kpts)):
+            conf = kpts[kpt_id, 2]
+            # if conf > kpt_thr:
+            kx = int((kpts[kpt_id, 0] - offset[0]) / scale)
+            ky = int((kpts[kpt_id, 1] - offset[1]) / scale)
+
+            keypoint_color = KEYPOINTS_COLOR[kpt_id % len(KEYPOINTS_COLOR)]
+            bgr_color = (keypoint_color[2], keypoint_color[1], keypoint_color[0])
+
+            cv2.circle(image, (kx, ky), 3, bgr_color, -1)
 
     return image
 
@@ -182,10 +231,10 @@ def resize_image(image:np.ndarray, target_shape:tuple[int, int], allow_crop:bool
 
 
 if __name__ == '__main__':
-    model_path = str(current_dir / 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
+    model_path = str(current_dir / 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
     video_path = str(current_dir.parent / 'datasets/loco640.mp4')
 
-    yolo26 = Yolo26(model_path=model_path, cores=(0,), need_preprocess=True)
+    yolo26pose = Yolo26Pose(model_path=model_path, cores=(0,), need_preprocess=True)
     cap = cv2.VideoCapture(video_path)
 
     time_list = []
@@ -200,14 +249,14 @@ if __name__ == '__main__':
         rgb_frame_resized, scale, offsets = resize_image(rgb_frame, (640, 320))
 
         start_time = time.time()
-        detect_result = yolo26.yolo26_detect(rgb_frame_resized)
+        detect_result = yolo26pose.yolo26pose_detect(rgb_frame_resized)
         end_time = time.time()
 
         time_list.append(end_time - start_time)
 
         if detect_result is not None:
-            image = draw_yolo(frame, detect_result, scale, offsets)
-            cv2.imshow('Yolo26', image)
+            image = draw_yolo_pose(frame, detect_result, scale, offsets)
+            cv2.imshow('Yolo26 Pose', image)
 
 
         if end_time - last_print_time >= 1.0:
@@ -226,4 +275,4 @@ if __name__ == '__main__':
 
     cap.release()
     cv2.destroyAllWindows()
-    yolo26.release()
+    yolo26pose.release()
