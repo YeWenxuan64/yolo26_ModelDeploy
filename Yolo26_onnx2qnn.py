@@ -5,6 +5,7 @@ from pathlib import Path
 current_dir = Path(__file__).resolve().parent
 parent_dir = current_dir.parent
 sys.path.append(str(current_dir))
+sys.path.append(str(parent_dir))
 
 
 from utilities.onnx_to_qnn import OnnxToQNN
@@ -51,4 +52,4 @@ if __name__ == '__main__':
     onnx_to_qnn = OnnxToQNN(model_path, qnn_model, DATASET_PATH)
 
     onnx_to_qnn.convert(mean_rgb=[[0, 0, 0]], std_rgb=[[255, 255, 255]])
-    onnx_to_qnn.clean()
+    #onnx_to_qnn.clean()

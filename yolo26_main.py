@@ -36,10 +36,6 @@ CLASSES = ("person", "bicycle", "car","motorbike","aeroplane","bus","train","tru
            "pottedplant","bed","diningtable","toilet","tvmonitor","laptop","mouse","remote ","keyboard ","cell phone","microwave",
            "oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier", "toothbrush")
 
-COCO_ID_LIST = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-                35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-                64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
-
 COLOR_LIST = [(4, 42, 255), (11, 219, 235), (243, 243, 243), (0, 223, 183), (17, 31, 104), (255, 111, 221), (255, 68, 79), (204, 237, 0), (0, 243, 68), (189, 0, 255),
               (0, 180, 255), (221, 0, 186), (0, 255, 255), (38, 192, 0), (1, 255, 179), (125, 36, 255), (123, 0, 104), (255, 27, 108), (252, 109, 47), (162, 255, 11),
               (255, 128, 0), (255, 153, 51), (255, 178, 102), (230, 230, 0), (255, 153, 255), (153, 204, 255), (255, 102, 255), (255, 51, 255), (102, 178, 255), (51, 153, 255),
@@ -56,12 +52,13 @@ class Yolo26:
         self.model_path = model_path
         self.conf_threshold = conf_threshold # 0.25
         self.need_preprocess = need_preprocess
+        self.mult_task = mult_task
         
         self.CLASSES = CLASSES
         self.color_list = COLOR_LIST
         
         self.output_shape = (-1, 6)
-        self.yolo26_infer = AIInferencer(self.model_path, cores=cores, mult_task=mult_task)
+        self.yolo26_infer = AIInferencer(self.model_path, cores=cores, mult_task=self.mult_task)
 
     def preprocess(self, color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
@@ -113,8 +110,9 @@ class Yolo26:
 
         input_data = np.expand_dims(color_image, axis=0) # 添加batch维度
 
-        self.yolo26_infer.inferfacer.put([input_data])
-        outputs = self.yolo26_infer.inferfacer.get(block=block)
+        outputs = self.yolo26_infer.inferfacer.put([input_data])
+        if self.mult_task:
+            outputs = self.yolo26_infer.inferfacer.get(block=block)
 
         detect_result = None
         if outputs is not None:

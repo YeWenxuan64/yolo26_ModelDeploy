@@ -174,6 +174,47 @@ def set_config(config, task:str, model:str, imgsz:list[int,int], batch:int=1, ma
 
     return config
 
+def replace_mod(model:onnx.ModelProto, node_name:str|None=None) -> onnx.ModelProto:
+    graph = model.graph
+    if node_name is None:
+        node_name = "/model.23/Mod"
+
+    # 1. 查找目标 Mod 节点
+    mod_node = None
+    mod_idx = -1
+    for idx, node in enumerate(graph.node):
+        if node.op_type == 'Mod' or node.name == node_name:
+            mod_node = node
+            mod_idx = idx
+            break
+
+    if not mod_node:
+        print(f"错误: 未找到 Mod 节点 (name={node_name})")
+        return
+
+    print(f"找到节点: {mod_node.name} (index: {mod_idx})")
+    
+    in_a, in_b = mod_node.input[0], mod_node.input[1]
+    out = mod_node.output[0]
+
+    # 2. 构建替换逻辑: out = in_a - in_b * (in_a // in_b)
+    # 注意: 假设 in_a 为非负数（YOLO 索引场景），ONNX 整数 Div 等同于 //
+    div_out = f"{out}_div"
+    mul_out = f"{out}_mul"
+
+    div_node = onnx.helper.make_node('Div', [in_a, in_b], [div_out], name=f"{mod_node.name}_Div")
+    mul_node = onnx.helper.make_node('Mul', [div_out, in_b], [mul_out], name=f"{mod_node.name}_Mul")
+    sub_node = onnx.helper.make_node('Sub', [in_a, mul_out], [out], name=f"{mod_node.name}_Sub")
+
+    # 3. 替换原节点
+    graph.node.remove(mod_node)
+    graph.node.insert(mod_idx, div_node)
+    graph.node.insert(mod_idx + 1, mul_node)
+    graph.node.insert(mod_idx + 2, sub_node)
+
+    print(f"MOD 替换完成")
+
+    return model
 
 
 
@@ -222,6 +263,8 @@ def modify(yolo_type:str="yolo"):
     onnx_model = onnx.load_model(onnx_model_path)
 
     original_info = summarize_model(onnx_model, os.path.basename(onnx_model_path))
+
+    onnx_model = replace_mod(onnx_model)
     
     onnx_model = onnxslim.slim(onnx_model)
     onnx_model = onnx.shape_inference.infer_shapes(onnx_model, check_type=True, strict_mode=True)

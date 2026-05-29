@@ -65,6 +65,7 @@ class Yolo26Pose:
         self.model_path = model_path
         self.conf_threshold = conf_threshold # 0.25
         self.need_preprocess = need_preprocess
+        self.mult_task = mult_task
         
         self.classes = CLASSES
         self.color_list = COLOR_LIST
@@ -73,7 +74,7 @@ class Yolo26Pose:
         self.skeletons = SKELETONS
         
         self.output_shape = (-1, 57)
-        self.yolo26pose_infer = AIInferencer(self.model_path, cores=cores, mult_task=mult_task)
+        self.yolo26pose_infer = AIInferencer(self.model_path, cores=cores, mult_task=self.mult_task)
 
     def preprocess(self, color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
@@ -135,8 +136,9 @@ class Yolo26Pose:
 
         input_data = np.expand_dims(color_image, axis=0) # 添加batch维度
 
-        self.yolo26pose_infer.inferfacer.put([input_data])
-        outputs = self.yolo26pose_infer.inferfacer.get(block=block)
+        outputs = self.yolo26pose_infer.inferfacer.put([input_data])
+        if self.mult_task:
+            outputs = self.yolo26pose_infer.inferfacer.get(block=block)
 
         detect_result = None
         if outputs is not None:
