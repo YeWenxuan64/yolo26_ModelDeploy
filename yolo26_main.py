@@ -43,14 +43,14 @@ COLOR_LIST = [(4, 42, 255), (11, 219, 235), (243, 243, 243), (0, 223, 183), (17,
 
 
 class Yolo26:
-    def __init__(self, model_path:str, need_preprocess:bool=False, conf_threshold:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
+    def __init__(self, model_path:str, need_preprocess:bool=False, conf_thresh:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
         """
         args:
             model_path: model_path
             cores: cores
         """
         self.model_path = model_path
-        self.conf_threshold = conf_threshold # 0.25
+        self.conf_thresh = conf_thresh # 0.25
         self.need_preprocess = need_preprocess
         self.mult_task = mult_task
         
@@ -74,7 +74,7 @@ class Yolo26:
         class_ids = output[:, 5]  # (N,)
 
         # 应用置信度阈值过滤
-        mask = scores > self.conf_threshold
+        mask = scores > self.conf_thresh
         filtered_boxes = boxes[mask]
         filtered_scores = scores[mask]
         filtered_class_ids = class_ids[mask]

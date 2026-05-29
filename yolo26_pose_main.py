@@ -56,14 +56,14 @@ SKELETONS = [(0, 1), (0, 2), (1, 3), (2, 4),          # 头部
 
 
 class Yolo26Pose:
-    def __init__(self, model_path:str, need_preprocess:bool=False, conf_threshold:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
+    def __init__(self, model_path:str, need_preprocess:bool=False, conf_thresh:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
         """
         args:
             model_path: model_path
             cores: cores
         """
         self.model_path = model_path
-        self.conf_threshold = conf_threshold # 0.25
+        self.conf_thresh = conf_thresh # 0.25
         self.need_preprocess = need_preprocess
         self.mult_task = mult_task
         
@@ -91,7 +91,7 @@ class Yolo26Pose:
         keypoints = output[:, 6:57]  # 关键点数据 (N, 51) (x1, y1, conf1, x2, y2, conf2, ..., x17, y17, conf17)
 
         # 应用置信度阈值过滤
-        mask = scores > self.conf_threshold
+        mask = scores > self.conf_thresh
         filtered_boxes = boxes[mask]
         filtered_scores = scores[mask]
         filtered_class_ids = class_ids[mask]
