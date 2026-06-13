@@ -10,6 +10,7 @@
 YOLO26 目标检测 (Detect) 和姿态估计 (Pose) 模型部署模块<br>
 从 PyTorch 到边缘端 NPU (Rockchip NPU / Qualcomm HTP) 的完整转换与推理流程
 
+> 同时本项目也是本小姐🍃的项目[Focus-Finder](https://github.com/YeWenxuan64/Focus-Finder)的模型部署部分喵~
 ---
 
 ### ✨ 功能亮点
@@ -18,7 +19,7 @@ YOLO26 目标检测 (Detect) 和姿态估计 (Pose) 模型部署模块<br>
 - **全链路自动化** — 一条命令完成 `.pt` → ONNX → RKNN / QNN，无需手动中间步骤
 - **双平台部署** — Rockchip NPU（RK3588/RK3576）+ Qualcomm HTP（QCS6490），INT8 量化
 - **灵活配置** — 输入尺寸、批次大小、检测上限均可调，适配不同硬件约束
-- **内置实时演示** — 开箱即用的视频流推理 + FPS 统计，按 `q` 退出
+- **内置实时演示** — 开箱即用的视频流推理 + `timeit` FPS 统计，按 `q` 退出
 - **易于集成** — 提供 Python API 接口，三行代码即可嵌入自有项目
 
 ---
@@ -159,7 +160,7 @@ python Yolo26_onnx2qnn.py --yolo_type yolo
 推理后端的部署与使用，详见 [Edge_Inferencer README.md](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md)
 
 
-两个推理入口，分别对应 Detect 和 Pose 任务。内置实时视频流演示，按 `q` 退出。
+- 两个推理入口，分别对应 Detect 和 Pose 任务。内置实时视频流演示，按 `q` 退出
 
 ### 目标检测
 
@@ -171,6 +172,7 @@ python yolo26_main.py
 - **输出：** `np.ndarray (N, 6)` → `[[x1, y1, x2, y2, class_id, score]...]`
 - **可视化：** `draw_yolo()` — 绘制边界框 + 类别标签 + 置信度
 - **可调参数：** `model_path`, `cores`, `conf_threshold`, `need_preprocess`
+- **特性：** `timeit` 装饰器统计 FPS，终端每秒输出平均耗时
 
 
 ### 姿态估计
@@ -183,6 +185,7 @@ python yolo26_pose_main.py
 - **输出：** `np.ndarray (N, 57)` → `[[x1, y1, x2, y2, class_id, score, kpt_x, kpt_y, kpt_conf, ...]...]`
 - **可视化：** `draw_yolo_pose()` — 绘制边界框 + 17 关键点圆圈 + 19 条骨骼连线
 - **可调参数：** `model_path`, `cores`, `conf_threshold`, `need_preprocess`
+- **特性：** `timeit` 装饰器统计 FPS，终端每秒输出平均耗时
 
 
 ---
@@ -190,24 +193,29 @@ python yolo26_pose_main.py
 ### 性能数据
 
 > ⚠️ 以下数据为参考值，实际性能取决于具体硬件型号、驱动版本、量化精度及输入分辨率。<br>
-> 推理时间为模型在NPU的推理时间，后处理时间为将推理结果处理为可用数据(如bbox，class，score等)的时间。<br>
-> 不包括预处理时间，如缩放图像、bgr转rgb、nwc转nhwc、归一化等。
-> 不包括拷贝数据时间
+> - 推理时间为模型在NPU的推理时间
+> - 后处理时间为将推理结果处理为可用数据(如bbox，class，score等)的时间
+> - 推理时间和后处理时间**不包括**预处理时间，如缩放图像、bgr转rgb、nwc转nhwc、归一化等，**也不包括**拷贝数据时间
+> - 并发推理时间**包含**推理时间、后处理时间以及拷贝数据时间，但不包括预处理时间
 
-| 平台          | 芯片    | 模型         | 精度  | 输入尺寸(HxW) | 推理时间(ms) | 后处理时间(ms) | 备注 |
-|--------------|---------|--------------|------|---------|------|-----------|-----|
-| Rockchip NPU | RK3588  | yolo26s      | INT8 | 320×640 | — | — | 待实测 |
-| Rockchip NPU | RK3588  | yolo26s-pose | INT8 | 320×640 | — | — | 待实测 |
-| Qualcomm HTP | QCS6490 | yolo26s      | INT8 | 320×640 | — | — | 待实测 |
-| Qualcomm HTP | QCS6490 | yolo26s-pose | INT8 | 320×640 | — | — | 待实测 |
+| 平台          | 芯片    | 模型         | 精度  | 输入尺寸(HxW) | 推理时间 | 后处理时间 | 并发推理 | 备注 |
+|--------------|---------|--------------|------|---------|------|------|-----|-----|
+| Rockchip NPU | RK3588  | yolo26s      | INT8 | 320×640 | —  | —  | —  | 待实测 |
+| Rockchip NPU | RK3588  | yolo26s-pose | INT8 | 320×640 | —  | —  | —  | 待实测 |
+| Qualcomm HTP | QCS6490 | yolo26s      | INT8 | 320×640 | —  | —  | —  | 待实测 |
+| Qualcomm HTP | QCS6490 | yolo26s-pose | INT8 | 320×640 | —  | —  | —  | 待实测 |
 
 
-> 💡 **如何获取实际数据：** 运行 `yolo26_main.py` / `yolo26_pose_main.py` 时终端会实时输出 FPS，记录稳定后的数值即可。
+> 💡 **如何获取实际数据：** 
+> - 运行 `yolo26_main.py` / `yolo26_pose_main.py` 时终端会实时输出 FPS，记录稳定后的数值即可。
+> - 使用 `VizTracer` 工具 Tracer 要运行的文件，之后浏览统计并统计结果
 
 ---
 
 
 ### 尝试集成到自己的项目
+
+
 
 ```python
 from yolo26_main import Yolo26, draw_yolo, resize_image
@@ -215,7 +223,7 @@ from yolo26_main import Yolo26, draw_yolo, resize_image
 # from yolo26_pose_main import Yolo26Pose, draw_yolo_pose, resize_image
 
 # 初始化
-model = Yolo26(model_path='path/to/model.onnx', cores=(0,), conf_threshold=0.25, need_preprocess=True)
+model = Yolo26(model_path='path/to/model.onnx', conf_threshold=0.25, need_preprocess=True, cores=(0,))
 
 # 预处理
 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

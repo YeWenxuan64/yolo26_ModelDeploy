@@ -190,7 +190,7 @@ def replace_mod(model:onnx.ModelProto, node_name:str|None=None) -> onnx.ModelPro
 
     if not mod_node:
         print(f"错误: 未找到 Mod 节点 (name={node_name})")
-        return
+        return model
 
     print(f"找到节点: {mod_node.name} (index: {mod_idx})")
     
@@ -278,7 +278,7 @@ def modify(yolo_type:str="yolo"):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='YOLO model exporter')
+    parser = argparse.ArgumentParser(description='YOLO26 model exporter')
 
     parser.add_argument(
         '--yolo_type', 

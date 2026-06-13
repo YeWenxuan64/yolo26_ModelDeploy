@@ -1,5 +1,4 @@
 import sys
-import time
 from pathlib import Path
 import cv2
 import numpy as np
@@ -23,7 +22,7 @@ class temporary_sys_path:
             sys.path.remove(self.new_path)
 
 with temporary_sys_path(current_dir.parent):
-    from Edge_Inferencer.ai_inferencer import AIInferencer
+    from Edge_Inferencer.ai_inferencer import AIInferencer, timeit
 
 
 
@@ -184,11 +183,8 @@ if __name__ == '__main__':
     video_path = str(current_dir.parent / 'datasets/loco640.mp4')
 
     yolo26 = Yolo26(model_path=model_path, need_preprocess=True)
+    yolo26.detect = timeit(yolo26.detect)
     cap = cv2.VideoCapture(video_path)
-
-    time_array = np.zeros(30, dtype=np.float32)
-    time_list_idx = 0
-    last_print_time = time.time()
 
     while True:
         ret, frame = cap.read()
@@ -198,24 +194,11 @@ if __name__ == '__main__':
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         rgb_frame_resized, scale, offsets = resize_image(rgb_frame, (640, 320))
 
-        start_time = time.time()
         detect_result = yolo26.detect(rgb_frame_resized, scale=(scale, scale), offset=offsets)
-        end_time = time.time()
-
-        time_array[time_list_idx] = end_time - start_time
-        time_list_idx = (time_list_idx + 1) % time_array.size
 
         if detect_result is not None:
             frame = draw_yolo(frame, detect_result)
         cv2.imshow('Yolo26', frame)
-
-
-        if end_time - last_print_time >= 1.0:
-            last_print_time = end_time
-            
-            average_time = np.mean(time_array)
-            fps = 1.0 / average_time
-            print(f"FPS: {fps:.2f}")
 
         key = cv2.waitKey(1)
         if key == ord('q'): 
