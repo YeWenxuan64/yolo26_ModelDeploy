@@ -42,56 +42,132 @@ COLOR_LIST = [(4, 42, 255), (11, 219, 235), (243, 243, 243), (0, 223, 183), (17,
 
 
 class Yolo26:
-    def __init__(self, model_path:str, need_preprocess:bool=False, conf_thresh:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
+    def __init__(self, model_path:str, model_size:tuple=(640, 320), need_preprocess:bool=False, conf_thresh:float=0.25, cores:tuple[int]=(0,), mult_task:bool=False):
         """
         args:
             model_path: model_path
             cores: cores
         """
         self.model_path = model_path
+        self.model_size = model_size  # (width, height)
         self.conf_thresh = conf_thresh # 0.25
         self.need_preprocess = need_preprocess
         self.mult_task = mult_task
         
         self.CLASSES = CLASSES
         self.color_list = COLOR_LIST
+
         
-        self.output_shape = (-1, 6)
         self.yolo26_infer = AIInferencer(self.model_path, cores=cores, mult_task=self.mult_task)
 
-    def preprocess(self, color_image:np.ndarray) -> np.ndarray:
+        # 预计算锚点网格（用于 bbox 解码）
+        self.anchor_xy, self.anchor_stride = self.build_anchor_grids(self.model_size)
+        self.total_anchors = self.anchor_xy.shape[0]
+
+        self.class_scores_arange = np.arange(self.total_anchors, dtype=np.uint16)
+
+        # 预期输出形状（channels, anchors）— 用于识别输出顺序
+        self.expected_shapes = [(4, self.total_anchors), (80, self.total_anchors)]
+        self.output_order = None  # 首次推理后由 identify_output_order() 缓存
+
+    @staticmethod
+    def build_anchor_grids(model_size_wh:tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+        """预生成三个检测头的锚点网格和步长张量"""
+        strides = [8, 16, 32]
+        w, h = model_size_wh
+
+        grid_xy_list = []
+        stride_list = []
+
+        for stride in strides:
+            fw, fh = w // stride, h // stride  # 特征图宽高
+            # 生成网格坐标 (0.5 偏移到 cell 中心)
+            gy, gx = np.meshgrid(np.arange(fh, dtype=np.float32) + 0.5,
+                                 np.arange(fw, dtype=np.float32) + 0.5, indexing='ij')
+            
+            grid_xy = np.stack([gx.ravel(), gy.ravel()], axis=1)  # [fw*fh, 2]
+            grid_xy_list.append(grid_xy)
+            stride_list.append(np.full((fw * fh, 1), stride, dtype=np.float32))
+
+        anchor_xy = np.concatenate(grid_xy_list, axis=0)   # [4200, 2]
+        nchor_stride = np.concatenate(stride_list, axis=0) # [4200, 1]
+
+        return anchor_xy, nchor_stride
+    
+    @staticmethod
+    def identify_output_order(infer_output:list[np.ndarray], expected_shapes:list[tuple[int, int]]) -> tuple[int, ...]:
+        """根据元素总数匹配实际输出到预期形状，返回重排索引"""
+        size_to_idx: dict[int, int] = {shape[0] * shape[1]: i for i, shape in enumerate(expected_shapes)}
+        order = list(range(len(expected_shapes)))
+
+        for actual_idx, arr in enumerate(infer_output):
+            expected_idx = size_to_idx.get(arr.size)
+            if expected_idx is not None:
+                order[expected_idx] = actual_idx
+
+        return tuple(order)
+
+    @staticmethod
+    def preprocess(color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
         return color_float
 
+    def bbox_anchor(self, boxes_raw:np.ndarray) -> np.ndarray:
+        # x1 = (anchor_x - left) * stride
+        # y1 = (anchor_y - top) * stride
+        # x2 = (anchor_x + right) * stride
+        # y2 = (anchor_y + bottom) * stride
+        boxes_raw[:, 0:1] = self.anchor_xy[:, 0:1] - boxes_raw[:, 0:1]
+        boxes_raw[:, 1:2] = self.anchor_xy[:, 1:2] - boxes_raw[:, 1:2]
+        boxes_raw[:, 2:3] += self.anchor_xy[:, 0:1]
+        boxes_raw[:, 3:4] += self.anchor_xy[:, 1:2]
+
+        boxes_raw *= self.anchor_stride # 乘以步长，转为像素坐标
+        return boxes_raw
+
     def post_process(self, infer_output:list[np.ndarray], scale:tuple[float, float]=(1.0, 1.0), offset:tuple[int, int]=(0, 0)) -> np.ndarray|None:
-        # 输出形状为 (1, N, 6)
-        output = infer_output[0].reshape(self.output_shape)  # 移除批次维度，形状变为 (N, 6)
+        if self.output_order is None: # 首次推理时识别输出顺序
+            self.output_order = self.identify_output_order(infer_output, self.expected_shapes)
 
-        # 分离边界框坐标、类别ID和分数
-        boxes = output[:, :4]  # (N, 4)
-        scores = output[:, 4]  # (N,)
-        class_ids = output[:, 5]  # (N,)
+        outputs = [infer_output[i] for i in self.output_order] # bbox, class
+    
+        # 根据预期形状 (channels, anchors) 重塑为 (anchors, channels)
+        boxes_raw = np.reshape(outputs[0], self.expected_shapes[0]).swapaxes(0, 1)   # [anchors, 4]
+        cls_raw = np.reshape(outputs[1], self.expected_shapes[1]).swapaxes(0, 1)   # [anchors, 80]
 
-        # 应用置信度阈值过滤
-        mask = scores > self.conf_thresh
-        filtered_boxes = boxes[mask]
-        filtered_scores = scores[mask]
+        # 模型已内置 Sigmoid，class scores 直接使用
+        cls_scores = cls_raw
+
+        # bbox 解码
+        boxes = self.bbox_anchor(boxes_raw)
+
+        # 每锚框的最佳类别和分数
+        class_ids = np.argmax(cls_scores, axis=1)
+        max_scores = cls_scores[self.class_scores_arange, class_ids]
+
+        # 置信度阈值过滤
+        mask = max_scores > self.conf_thresh
+        boxes = boxes[mask]
+        filtered_scores = max_scores[mask]
         filtered_class_ids = class_ids[mask]
-        
-        if filtered_boxes.size == 0:
+
+        if boxes.size == 0:
             return None
-        
-        idxs = np.argsort(filtered_scores, axis=0)[::-1]  # 按置信度降序排序
-        filtered_boxes = filtered_boxes[idxs]             # (x1, y1, x2, y2)
-        filtered_scores = filtered_scores[idxs]
-        filtered_class_ids = filtered_class_ids[idxs]
 
-        filtered_boxes[..., 0::2] -= offset[0]
-        filtered_boxes[..., 1::2] -= offset[1]
-        filtered_boxes[..., 0::2] /= scale[0]
-        filtered_boxes[..., 1::2] /= scale[1]
+        # 按置信度降序
+        order = np.argsort(filtered_scores)[::-1][:256]
+        boxes = boxes[order]
+        filtered_scores = filtered_scores[order]
+        filtered_class_ids = filtered_class_ids[order]
 
-        results = np.hstack((filtered_boxes, np.vstack(filtered_class_ids), np.vstack(filtered_scores)), dtype=np.float32)
+        # 缩放回原始图像坐标
+        boxes[..., 0::2] = (boxes[..., 0::2] - offset[0]) / scale[0] # (x1, x2)
+        boxes[..., 1::2] = (boxes[..., 1::2] - offset[1]) / scale[1] # (y1, y2)
+
+        boxes[..., 0::2] = np.clip(boxes[..., 0::2], 0, self.model_size[0])
+        boxes[..., 1::2] = np.clip(boxes[..., 1::2], 0, self.model_size[1])
+
+        results = np.column_stack([boxes, filtered_class_ids, filtered_scores])
         return results
 
     def detect(self, color_image:np.ndarray, block:bool=True, scale:tuple[float, float]=(1.0, 1.0), offset:tuple[int, int]=(0, 0)) -> np.ndarray|None:

@@ -5,18 +5,17 @@ from pathlib import Path
 current_dir = Path(__file__).resolve().parent
 parent_dir = current_dir.parent
 sys.path.append(str(current_dir))
+sys.path.append(str(parent_dir))
 
 from utilities.onnx_to_rknn import OnnxToRKNN
-
+from utilities.utils import fmt_model_name_with_shape
 
 
 # 模型文件路径
 YOLO26_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s_[1,3,320,640].onnx')
 YOLO26_POSE_MODEL_PATH = str(current_dir / 'models_convert/onnx/yolo26s-pose_[1,3,320,640].onnx')
 
-# 导出路径
-YOLO26_RKNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s_i8[1,320,640,3].rknn')
-YOLO26_POSE_RKNN_MODEL = str(current_dir / 'models_convert/rknn/yolo26s-pose_i8[1,320,640,3].rknn')
+RKNN_OUTPUT_DIR = current_dir / 'models_convert/rknn'
 
 DATASET_PATH = str(parent_dir / 'datasets/datasets.txt')
 
@@ -39,11 +38,13 @@ if __name__ == '__main__':
 
     if yolo_type == 'yolo':
         model_path = YOLO26_MODEL_PATH
-        rknn_model = YOLO26_RKNN_MODEL
+        rknn_model_name = fmt_model_name_with_shape(model_path, model_name="yolo26s_i8{shapes}.rknn", use_nhwc=True)
+        rknn_model = str(RKNN_OUTPUT_DIR / rknn_model_name)
 
     elif yolo_type == 'yolo-pose':
         model_path = YOLO26_POSE_MODEL_PATH
-        rknn_model = YOLO26_POSE_RKNN_MODEL
+        rknn_model_name = fmt_model_name_with_shape(model_path, model_name="yolo26s-pose_i8{shapes}.rknn", use_nhwc=True)
+        rknn_model = str(RKNN_OUTPUT_DIR / rknn_model_name)
         
     else:
         raise ValueError("yolo_type must be 'yolo', 'yolo-pose'")
