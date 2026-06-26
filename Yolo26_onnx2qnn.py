@@ -36,8 +36,8 @@ if __name__ == '__main__':
 
     yolo_type = parser.parse_args().yolo_type
 
-    yolo_type = "yolo"
-    yolo_type = "yolo-pose"
+    # yolo_type = "yolo"
+    # yolo_type = "yolo-pose"
 
     if yolo_type == 'yolo':
         model_path = YOLO26_MODEL_PATH

@@ -36,6 +36,9 @@ if __name__ == '__main__':
 
     yolo_type = parser.parse_args().yolo_type
 
+    # yolo_type = "yolo"
+    # yolo_type = "yolo-pose"
+
     if yolo_type == 'yolo':
         model_path = YOLO26_MODEL_PATH
         rknn_model_name = fmt_model_name_with_shape(model_path, model_name="yolo26s_i8{shapes}.rknn", use_nhwc=True)

@@ -175,63 +175,65 @@ def set_config(config, task:str, model:str, imgsz:list[int,int], batch:int=1, ma
     return config
 
 
-def insert_sigmoid_after_class_convs(model: onnx.ModelProto, conv_node_names: list[str]) -> onnx.ModelProto:
+def insert_sigmoid_after_convs(model:onnx.ModelProto, conv_node_names:list[str]) -> onnx.ModelProto:
     """
-    在指定的 Conv 节点之后插入 Sigmoid，并更新所有下游引用。
+    在指定的 Conv 节点之后插入 Sigmoid, 并更新所有下游引用。
     用于将 Concat 之后的 Sigmoid 移到 Concat 之前的各分支 Conv 后面，
-    使转换器（RKNN/QNN）可以将 Conv+Sigmoid 融合。
+    使转换器可以将 Conv+Sigmoid 融合。
     """
     graph = model.graph
-    old_nodes = list(graph.node)
-    new_nodes = []
+    nodes = graph.node
 
     # 建立 conv_output -> sigmoid_output 映射
-    sigmoid_map = {}
-    for node in old_nodes:
-        if node.name in conv_node_names:
-            sigmoid_map[node.output[0]] = node.output[0] + "_sigmoid"
+    conv_to_sigmoid_map:dict[str, str] = {}
+    sigmoid_node_list:list[onnx.NodeProto] = []
+    sigmoid_node_insert_index_list:list[int] = []
 
-    # 重建节点列表，在每个目标 Conv 后插入 Sigmoid
-    new_sigmoid_names = set()
-    for node in old_nodes:
-        new_nodes.append(node)
+    for i, node in enumerate(nodes):
         if node.name in conv_node_names:
+            target_conv_output_name = node.output[0]
+            sigmoid_output_name = f"{target_conv_output_name}_sigmoid"
+
             sigmoid_node = onnx.helper.make_node(
                 "Sigmoid",
                 inputs=[node.output[0]],
-                outputs=[sigmoid_map[node.output[0]]],
+                outputs=[sigmoid_output_name],
                 name=node.name.replace("/Conv", "/Sigmoid"),
             )
-            new_nodes.append(sigmoid_node)
-            new_sigmoid_names.add(sigmoid_node.name)
 
-    # 更新所有下游节点的输入引用（跳过新插入的 Sigmoid 本身）
-    for node in new_nodes:
-        if node.name in new_sigmoid_names:
-            continue
-        for i, inp in enumerate(node.input):
-            if inp in sigmoid_map:
-                node.input[i] = sigmoid_map[inp]
+            conv_to_sigmoid_map[target_conv_output_name] = sigmoid_output_name
+            sigmoid_node_list.append(sigmoid_node)
+            sigmoid_node_insert_index_list.append(i+1)
 
-    del graph.node[:]
-    graph.node.extend(new_nodes)
+    # 更新所有下游引用
+    for node in nodes:
+        for i, node_input in enumerate(node.input):
+            if node_input in conv_to_sigmoid_map.keys():
+                node.input[i] = conv_to_sigmoid_map[node_input]
 
-    print(f"Inserted Sigmoid after {len(conv_node_names)} class Conv nodes")
+    # 插入 Sigmoid 节点
+    for i in range(len(sigmoid_node_list)):
+        sigmoid_node = sigmoid_node_list.pop(0)
+        insert_index = sigmoid_node_insert_index_list.pop(0)
+
+        nodes.insert(insert_index, sigmoid_node)
+        print(f"Inserted Sigmoid after {sigmoid_node.input[0]}")
+
     return model
 
-def move_sigmoid_into_concat_branches(model: onnx.ModelProto, concat_node_name: str) -> onnx.ModelProto:
+def move_sigmoid_into_concat_branches(model:onnx.ModelProto, concat_node_name:str) -> onnx.ModelProto:
     """
-    自动探测：若 Concat 节点的输出下游紧接 Sigmoid，则将该 Sigmoid 移到 Concat
-    各输入分支的最后一个 Conv 之后（便于转换器融合 Conv+Sigmoid）。
+    自动探测：若 Concat 节点的输出下游紧接 Sigmoid, 则将该 Sigmoid 移到 Concat
+    各输入分支的最后一个 Conv 之后(便于转换器融合 Conv+Sigmoid)。
 
     工作流程：
       1. 找到 Concat 节点
       2. 检查 Concat 的输出消费者是否为 Sigmoid
       3. 沿 Concat 的每个输入逆向追溯到对应的 Conv 节点
-      4. 在每路 Conv 后插入 Sigmoid，更新下游引用
+      4. 在每路 Conv 后插入 Sigmoid, 更新下游引用
     """
     graph = model.graph
-    nodes = list(graph.node)
+    nodes = graph.node
 
     # 1. 定位 Concat 节点
     concat_node = None
@@ -239,10 +241,10 @@ def move_sigmoid_into_concat_branches(model: onnx.ModelProto, concat_node_name: 
         if node.name == concat_node_name:
             concat_node = node
             break
-    if concat_node is None:
+
+    if concat_node is None or concat_node.op_type != "Concat":
         raise ValueError(f"Concat node '{concat_node_name}' not found")
-    if concat_node.op_type != "Concat":
-        raise ValueError(f"Node '{concat_node_name}' is {concat_node.op_type}, not Concat")
+
 
     concat_out = concat_node.output[0]
 
@@ -254,18 +256,13 @@ def move_sigmoid_into_concat_branches(model: onnx.ModelProto, concat_node_name: 
                 sigmoid_consumer = node
                 print(f"  Detected Sigmoid after Concat: {node.name}")
                 break
-            else:
-                raise ValueError(
-                    f"Concat output '{concat_out}' consumed by {node.op_type} "
-                    f"('{node.name}'), expected Sigmoid"
-                )
 
     if sigmoid_consumer is None:
         print(f"  No Sigmoid found after Concat '{concat_node_name}', nothing to move")
         return model
 
     # 3. 建立 tensor → producer 映射
-    tensor_to_producer = {}
+    tensor_to_producer:dict[str, onnx.NodeProto] = {}
     for node in nodes:
         for out in node.output:
             tensor_to_producer[out] = node
@@ -288,27 +285,25 @@ def move_sigmoid_into_concat_branches(model: onnx.ModelProto, concat_node_name: 
             continue
 
         conv_node_names.append(producer.name)
-        print(f"  Branch: ... → {producer.name} → {inp_name}")
+        print(f"  {producer.name} → {inp_name}")
 
     if not conv_node_names:
         raise ValueError("No Conv nodes found upstream of Concat inputs")
 
     # 5. 插入 Sigmoid
-    model = insert_sigmoid_after_class_convs(model, conv_node_names)
+    model = insert_sigmoid_after_convs(model, conv_node_names)
 
     # 6. 移除原来 Concat 后面的 Sigmoid 节点
     #    先将其输出引用全部重定向到 Concat 的输出（确保下游不断连）
-    graph = model.graph
     old_sigmoid_out = sigmoid_consumer.output[0]
-    nodes = list(graph.node)
+
     for node in nodes:
         for i, inp in enumerate(node.input):
             if inp == old_sigmoid_out:
                 node.input[i] = concat_out
+                
     #    再删除旧 Sigmoid
-    nodes = [n for n in nodes if n.name != sigmoid_consumer.name]
-    del graph.node[:]
-    graph.node.extend(nodes)
+    nodes.remove(sigmoid_consumer)
     print(f"  Removed original Sigmoid '{sigmoid_consumer.name}', rewired {old_sigmoid_out} → {concat_out}")
 
     return model
