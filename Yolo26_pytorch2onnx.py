@@ -304,63 +304,166 @@ def move_sigmoid_into_concat_branches(model:onnx.ModelProto, concat_node_name:st
                 
     #    再删除旧 Sigmoid
     nodes.remove(sigmoid_consumer)
+
+    model = onnx.shape_inference.infer_shapes(model, check_type=True)
     print(f"  Removed original Sigmoid '{sigmoid_consumer.name}', rewired {old_sigmoid_out} → {concat_out}")
 
     return model
 
-def trim_model_to_outputs(model:onnx.ModelProto, output_node_names:list[str]) -> onnx.ModelProto:
+def find_nodes_before_nodes(model:onnx.ModelProto, node_names:list[str]) -> list[str]:
     """
-    Keep nodes up to the farthest target node (inclusive), and set multiple
-    target nodes' first outputs as the model outputs.
+    找到所有在指定节点之前的节点（深度为1，即目标节点的直接输入生产者）。
+    仅返回 graph.node 中的节点，排除 Initializer。
 
-    Args:
-        model: ONNX model
-        output_node_names: list of node names whose first output will become model outputs.
-                          The cut point is the latest (farthest in graph order) of these nodes.
+    返回的节点名按双重顺序排列：
+      1. 先按 node_names 中目标节点的顺序；
+      2. 再按每个目标节点的 inputs 列表顺序。
     """
+    graph = model.graph
+    nodes = graph.node
+
+    # 收集所有 Initializer 的 tensor 名，用于排除
+    initializer_names = {init.name for init in graph.initializer}
+
+    # 建立 tensor 名 → 生产者节点 的映射
+    tensor_to_producer: dict[str, onnx.NodeProto] = {}
+    for node in nodes:
+        for out in node.output:
+            tensor_to_producer[out] = node
+
+    # 建立 node 名 → node 的映射，方便按名查找目标节点
+    name_to_node: dict[str, onnx.NodeProto] = {}
+    for node in nodes:
+        name_to_node[node.name] = node
+
+    producer_name_list: list[str] = []
+    for target_name in node_names:
+        target_node = name_to_node.get(target_name)
+        if target_node is None:
+            continue
+        # 按目标节点 inputs 的顺序遍历
+        for inp_name in target_node.input:
+            # 跳过 Initializer（常量）和 graph input
+            if inp_name in initializer_names:
+                continue
+
+            producer = tensor_to_producer.get(inp_name)
+
+            if producer is None or producer.op_type == "Constant":
+                continue
+
+            producer_name_list.append(producer.name)
+
+    return producer_name_list
+
+def trim_model_to_outputs(model: onnx.ModelProto, output_node_names: list[str]) -> onnx.ModelProto:
+    """
+    使用 DAG 反向遍历算法裁剪 ONNX 模型。
+    仅保留计算目标输出所需的精确节点，自动剔除死代码，完全不依赖节点列表索引。
+    """
+    # 1. 运行形状推导，确保 value_info 包含完整的类型和维度信息
     model = onnx.shape_inference.infer_shapes(model)
+    
+    # 去重并保持顺序
+    seen = set()
+    unique_output_names = [n for n in output_node_names if not (n in seen or seen.add(n))]
+    
+    # 2. 构建图结构映射表 (Producer Map & Node ID Map)
+    # producer_map: 张量名 -> 产生该张量的节点对象 (相当于图的反向边)
+    # node_id_map: 使用 id(node) 作为键，避免 Protobuf 对象极慢的 Hash 和 Eq 计算
+    producer_map = {}
+    node_id_map = {} 
+    
+    for node in model.graph.node:
+        node_id_map[id(node)] = node
+        for output_name in node.output:
+            producer_map[output_name] = node
 
-    # Find all target nodes and the latest one
-    target_indices = {}
-    for i, node in enumerate(model.graph.node):
-        if node.name in output_node_names:
-            target_indices[node.name] = i
-
-    missing = set(output_node_names) - set(target_indices.keys())
+    # 3. 识别目标节点
+    target_nodes = [n for n in model.graph.node if n.name in unique_output_names]
+    
+    missing = set(unique_output_names) - {n.name for n in target_nodes}
     if missing:
         raise ValueError(f"Nodes not found: {missing}")
 
-    cut_idx = max(target_indices.values())
+    # 4. 核心算法：深度优先搜索 (DFS) 逆向寻找所有祖先节点
+    required_node_ids = set()
+    stack = [id(n) for n in target_nodes]
+    
+    while stack:
+        curr_id = stack.pop()
+        if curr_id in required_node_ids:
+            continue
+            
+        required_node_ids.add(curr_id)
+        curr_node = node_id_map[curr_id]
+        
+        # 逆向遍历当前节点的所有输入张量
+        for input_tensor in curr_node.input:
+            # 忽略可选的空输入 ("")
+            if input_tensor and input_tensor in producer_map:
+                parent_node = producer_map[input_tensor]
+                parent_id = id(parent_node)
+                if parent_id not in required_node_ids:
+                    stack.append(parent_id)
 
-    # Gather all output tensor info
+    # 5. 过滤节点：保留在依赖树中的节点，自动维持原有的拓扑排序
+    trimmed_nodes = [node for node in model.graph.node if id(node) in required_node_ids]
+
+    # 6. 死代码消除 (Dead Code Elimination)
+    # 找出所有被保留节点实际消耗的张量，剔除未使用的 Inputs 和 Initializers (权重)
+    required_tensors = set()
+    for node in trimmed_nodes:
+        required_tensors.update(node.input)
+        
+    trimmed_initializers = [init for init in model.graph.initializer if init.name in required_tensors]
+    trimmed_inputs = [inp for inp in model.graph.input if inp.name in required_tensors]
+
+    # 7. 构建新图的 Outputs (支持动态维度与真实数据类型)
     outputs = []
-    for name in output_node_names:
-        idx = target_indices[name]
-        node = model.graph.node[idx]
+    # 汇总所有可能包含形状/类型信息的来源
+    value_info_map = {v.name: v for v in list(model.graph.value_info) + list(model.graph.output) + list(model.graph.input)}
+    
+    for node in target_nodes:
+        if not node.output:
+            raise ValueError(f"Target node '{node.name}' has no outputs.")
+            
         out_name = node.output[0]
-        # Get output shape
-        for v in list(model.graph.value_info) + list(model.graph.output):
-            if v.name == out_name:
-                shape = [d.dim_value for d in v.type.tensor_type.shape.dim]
-                break
-        else:
-            raise ValueError(f"Could not determine shape of '{out_name}'.")
-        outputs.append(onnx.helper.make_tensor_value_info(out_name, onnx.TensorProto.FLOAT, shape))
-        print(f"  Output[{name}]: {out_name} {shape}")
+        elem_type = onnx.TensorProto.FLOAT  # 默认回退
+        shape = []                     # 默认动态/未知
+        
+        if out_name in value_info_map:
+            v = value_info_map[out_name]
+            if v.type.HasField('tensor_type'):
+                # 提取真实的数据类型 (如 FLOAT16, INT64 等)
+                elem_type = v.type.tensor_type.elem_type
+                
+                # 兼容动态维度 (dim_param) 和静态维度 (dim_value)
+                if v.type.tensor_type.HasField('shape'):
+                    for d in v.type.tensor_type.shape.dim:
+                        if d.HasField('dim_value'):
+                            shape.append(d.dim_value)
+                        elif d.HasField('dim_param'):
+                            shape.append(d.dim_param)
+                        else:
+                            shape.append(None)
+        
+        outputs.append(onnx.helper.make_tensor_value_info(out_name, elem_type, shape))
+        print(f"  Output[{node.name}]: {out_name} | type: {elem_type} | shape: {shape}")
 
+    # 8. 组装并返回新模型
     new_graph = onnx.helper.make_graph(
-        list(model.graph.node[: cut_idx + 1]),
+        trimmed_nodes,
         model.graph.name + "_trimmed",
-        model.graph.input,
+        trimmed_inputs,
         outputs,
-        model.graph.initializer,
+        trimmed_initializers,
     )
 
     new_model = onnx.helper.make_model(new_graph, opset_imports=model.opset_import)
-    print(f"Trimmed model: cut at index {cut_idx}, {len(outputs)} outputs")
-
+    print(f"Successfully trimmed model.")
+    
     return new_model
-
 
 
 yolo_config_path = str(project_root / 'ultralytics/cfg/default.yaml')
@@ -413,12 +516,16 @@ def modify(yolo_type:str="yolo"):
 
     if yolo_type == "yolo":
         # 双输出截断：原始 bbox + 已 sigmoid 的 class
-        trim_nodes = ["/model.23/Concat", "/model.23/Concat_1"]
+        target_concat_nodes = ["/model.23/Concat", "/model.23/Concat_1"]
     else:
         # pose 三输出截断：bbox + 已 sigmoid 的 class + keypoints
-        trim_nodes = ["/model.23/Concat", "/model.23/Concat_1", "/model.23/Concat_2"]
+        target_concat_nodes = ["/model.23/Concat", "/model.23/Concat_1", "/model.23/Concat_2"]
 
-    onnx_model = trim_model_to_outputs(onnx_model, trim_nodes)
+    reshape_nodes = find_nodes_before_nodes(onnx_model, target_concat_nodes)
+    nodes_before_reshape = find_nodes_before_nodes(onnx_model, reshape_nodes)
+
+    onnx_model = trim_model_to_outputs(onnx_model, nodes_before_reshape)
+
 
     onnx_model = onnxslim.slim(onnx_model)
     onnx_model = onnx.shape_inference.infer_shapes(onnx_model, check_type=True, strict_mode=True)

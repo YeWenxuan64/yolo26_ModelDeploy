@@ -61,13 +61,12 @@ class Yolo26:
         self.yolo26_infer = AIInferencer(self.model_path, cores=cores, mult_task=self.mult_task)
 
         # 预计算锚点网格（用于 bbox 解码）
-        self.anchor_xy, self.anchor_stride = self.build_anchor_grids(self.model_size)
+        self.anchor_xy, self.anchor_stride, self.stride_dim_list = self.build_anchor_grids(self.model_size)
         self.total_anchors = self.anchor_xy.shape[0]
 
         self.class_scores_arange = np.arange(self.total_anchors, dtype=np.uint16)
 
         # 预期输出形状（channels, anchors）— 用于识别输出顺序
-        self.expected_shapes = [(4, self.total_anchors), (80, self.total_anchors)]
         self.output_order = None  # 首次推理后由 identify_output_order() 缓存
 
     @staticmethod
@@ -78,6 +77,7 @@ class Yolo26:
 
         grid_xy_list = []
         stride_list = []
+        stride_dim_list = []
 
         for stride in strides:
             fw, fh = w // stride, h // stride  # 特征图宽高
@@ -86,17 +86,24 @@ class Yolo26:
                                  np.arange(fw, dtype=np.float32) + 0.5, indexing='ij')
             
             grid_xy = np.stack([gx.ravel(), gy.ravel()], axis=1)  # [fw*fh, 2]
+
             grid_xy_list.append(grid_xy)
             stride_list.append(np.full((fw * fh, 1), stride, dtype=np.float32))
+            stride_dim_list.append((fh, fw))
 
         anchor_xy = np.concatenate(grid_xy_list, axis=0)   # [4200, 2]
         nchor_stride = np.concatenate(stride_list, axis=0) # [4200, 1]
 
-        return anchor_xy, nchor_stride
+        return anchor_xy, nchor_stride, stride_dim_list
     
     @staticmethod
-    def identify_output_order(infer_output:list[np.ndarray], expected_shapes:list[tuple[int, int]]) -> tuple[int, ...]:
+    def identify_output_order(infer_output:list[np.ndarray], stride_dim_list:list[tuple[int, int]]) -> tuple[int, ...]:
         """根据元素总数匹配实际输出到预期形状，返回重排索引"""
+        bbox_shapes = [(4, feature_h, feature_w) for feature_h, feature_w in stride_dim_list]
+        cls_shapes = [(1, feature_h, feature_w) for feature_h, feature_w in stride_dim_list]
+
+        expected_shapes = bbox_shapes + cls_shapes
+
         size_to_idx: dict[int, int] = {shape[0] * shape[1]: i for i, shape in enumerate(expected_shapes)}
         order = list(range(len(expected_shapes)))
 
@@ -106,6 +113,17 @@ class Yolo26:
                 order[expected_idx] = actual_idx
 
         return tuple(order)
+
+    @staticmethod
+    def contact_outputs(ordered_outputs:list[np.ndarray]) -> list[np.ndarray]:
+        bbox_outputs = [arr.reshape(4, -1) for arr in ordered_outputs[:3]]
+        cls_outputs = [arr.reshape(80, -1) for arr in ordered_outputs[3:]]
+
+        bbox_output = np.concatenate(bbox_outputs, axis=-1)
+        cls_output = np.concatenate(cls_outputs, axis=-1)
+
+        contacted_outputs = [bbox_output, cls_output]
+        return contacted_outputs
 
     @staticmethod
     def preprocess(color_image:np.ndarray) -> np.ndarray:
@@ -127,13 +145,16 @@ class Yolo26:
 
     def post_process(self, infer_output:list[np.ndarray], scale:tuple[float, float]=(1.0, 1.0), offset:tuple[int, int]=(0, 0)) -> np.ndarray|None:
         if self.output_order is None: # 首次推理时识别输出顺序
-            self.output_order = self.identify_output_order(infer_output, self.expected_shapes)
+            self.output_order = self.identify_output_order(infer_output, self.stride_dim_list)
+            if self.output_order is None:
+                return None
 
-        outputs = [infer_output[i] for i in self.output_order] # bbox, class
+        outputs = [infer_output[i] for i in self.output_order] 
+        outputs = self.contact_outputs(outputs) # bbox, class
     
         # 根据预期形状 (channels, anchors) 重塑为 (anchors, channels)
-        boxes_raw = np.reshape(outputs[0], self.expected_shapes[0]).swapaxes(0, 1)   # [anchors, 4]
-        cls_raw = np.reshape(outputs[1], self.expected_shapes[1]).swapaxes(0, 1)   # [anchors, 80]
+        boxes_raw = np.reshape(outputs[0], (4, self.total_anchors)).swapaxes(0, 1)   # [anchors, 4]
+        cls_raw = np.reshape(outputs[1], (80, self.total_anchors)).swapaxes(0, 1)   # [anchors, 80]
 
         # 模型已内置 Sigmoid，class scores 直接使用
         cls_scores = cls_raw
@@ -155,10 +176,10 @@ class Yolo26:
             return None
 
         # 按置信度降序
-        order = np.argsort(filtered_scores)[::-1][:256]
-        boxes = boxes[order]
-        filtered_scores = filtered_scores[order]
-        filtered_class_ids = filtered_class_ids[order]
+        # order = np.argsort(filtered_scores)[::-1][:256]
+        # boxes = boxes[order]
+        # filtered_scores = filtered_scores[order]
+        # filtered_class_ids = filtered_class_ids[order]
 
         # 缩放回原始图像坐标
         boxes[..., 0::2] = (boxes[..., 0::2] - offset[0]) / scale[0] # (x1, x2)
