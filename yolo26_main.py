@@ -115,33 +115,20 @@ class Yolo26:
         return tuple(order)
 
     @staticmethod
-    def contact_outputs(ordered_outputs:list[np.ndarray]) -> list[np.ndarray]:
-        bbox_outputs = [arr.reshape(4, -1) for arr in ordered_outputs[:3]]
-        cls_outputs = [arr.reshape(80, -1) for arr in ordered_outputs[3:]]
-
-        bbox_output = np.concatenate(bbox_outputs, axis=-1)
-        cls_output = np.concatenate(cls_outputs, axis=-1)
-
-        contacted_outputs = [bbox_output, cls_output]
-        return contacted_outputs
-
-    @staticmethod
     def preprocess(color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
         return color_float
 
-    def bbox_anchor(self, boxes_raw:np.ndarray) -> np.ndarray:
-        # x1 = (anchor_x - left) * stride
-        # y1 = (anchor_y - top) * stride
-        # x2 = (anchor_x + right) * stride
-        # y2 = (anchor_y + bottom) * stride
-        boxes_raw[:, 0:1] = self.anchor_xy[:, 0:1] - boxes_raw[:, 0:1]
-        boxes_raw[:, 1:2] = self.anchor_xy[:, 1:2] - boxes_raw[:, 1:2]
-        boxes_raw[:, 2:3] += self.anchor_xy[:, 0:1]
-        boxes_raw[:, 3:4] += self.anchor_xy[:, 1:2]
+    def bbox_anchor(self, bbox_concat:np.ndarray) -> np.ndarray:
+        bbox_concat = bbox_concat.swapaxes(0, 1) # (4, N) -> (N, 4)
 
-        boxes_raw *= self.anchor_stride # 乘以步长，转为像素坐标
-        return boxes_raw
+        np.subtract(self.anchor_xy, bbox_concat[..., 0:2], out=bbox_concat[..., 0:2])
+        np.add(self.anchor_xy, bbox_concat[..., 2:4], out=bbox_concat[..., 2:4])
+
+        np.multiply(bbox_concat, self.anchor_stride, out=bbox_concat)
+        
+        boxes = bbox_concat
+        return boxes
 
     def post_process(self, infer_output:list[np.ndarray], scale:tuple[float, float]=(1.0, 1.0), offset:tuple[int, int]=(0, 0)) -> np.ndarray|None:
         if self.output_order is None: # 首次推理时识别输出顺序
@@ -150,21 +137,20 @@ class Yolo26:
                 return None
 
         outputs = [infer_output[i] for i in self.output_order] 
-        outputs = self.contact_outputs(outputs) # bbox, class
-    
+
         # 根据预期形状 (channels, anchors) 重塑为 (anchors, channels)
-        boxes_raw = np.reshape(outputs[0], (4, self.total_anchors)).swapaxes(0, 1)   # [anchors, 4]
-        cls_raw = np.reshape(outputs[1], (80, self.total_anchors)).swapaxes(0, 1)   # [anchors, 80]
+        bbox_concat = np.concatenate([arr.reshape(4, -1) for arr in outputs[0:3]], axis=-1) # (4, N)
+        cls_concat = np.concatenate([arr.reshape(80, -1) for arr in outputs[3:6]], axis=-1) # (80, N)
 
         # 模型已内置 Sigmoid，class scores 直接使用
-        cls_scores = cls_raw
+        cls_scores = cls_concat
 
         # bbox 解码
-        boxes = self.bbox_anchor(boxes_raw)
+        boxes = self.bbox_anchor(bbox_concat)
 
         # 每锚框的最佳类别和分数
-        class_ids = np.argmax(cls_scores, axis=1)
-        max_scores = cls_scores[self.class_scores_arange, class_ids]
+        class_ids = np.argmax(cls_scores, axis=0)
+        max_scores = cls_scores[class_ids, self.class_scores_arange]
 
         # 置信度阈值过滤
         mask = max_scores > self.conf_thresh
@@ -182,11 +168,13 @@ class Yolo26:
         # filtered_class_ids = filtered_class_ids[order]
 
         # 缩放回原始图像坐标
-        boxes[..., 0::2] = (boxes[..., 0::2] - offset[0]) / scale[0] # (x1, x2)
-        boxes[..., 1::2] = (boxes[..., 1::2] - offset[1]) / scale[1] # (y1, y2)
+        np.subtract(boxes[..., 0::2], offset[0], out=boxes[..., 0::2]) # (x1, x2)
+        np.divide(boxes[..., 0::2], scale[0], out=boxes[..., 0::2])
+        np.subtract(boxes[..., 1::2], offset[1], out=boxes[..., 1::2]) # (y1, y2)
+        np.divide(boxes[..., 1::2], scale[1], out=boxes[..., 1::2])
 
-        boxes[..., 0::2] = np.clip(boxes[..., 0::2], 0, self.model_size[0])
-        boxes[..., 1::2] = np.clip(boxes[..., 1::2], 0, self.model_size[1])
+        np.clip(boxes[..., 0::2], 0, self.model_size[0], out=boxes[..., 0::2])
+        np.clip(boxes[..., 1::2], 0, self.model_size[1], out=boxes[..., 1::2])
 
         results = np.column_stack([boxes, filtered_class_ids, filtered_scores])
         return results

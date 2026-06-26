@@ -130,40 +130,24 @@ class Yolo26Pose:
         return tuple(order)
     
     @staticmethod
-    def contact_outputs(ordered_outputs:list[np.ndarray]) -> list[np.ndarray]:
-        bbox_outputs = [arr.reshape(4, -1) for arr in ordered_outputs[:3]]
-        cls_outputs = [arr.reshape(1, -1) for arr in ordered_outputs[3:6]]
-        keypoints_outputs = [arr.reshape(51, -1) for arr in ordered_outputs[6:9]]
-
-        bbox_output = np.concatenate(bbox_outputs, axis=-1)
-        cls_output = np.concatenate(cls_outputs, axis=-1)
-        keypoints_output = np.concatenate(keypoints_outputs, axis=-1)
-
-        contacted_outputs = [bbox_output, cls_output, keypoints_output]
-        return contacted_outputs
-
-    @staticmethod
     def preprocess(color_image:np.ndarray) -> np.ndarray:
         color_float = color_image.astype(np.float32) / 255.0
         return color_float
 
-    def bbox_anchor(self, boxes_raw:np.ndarray) -> np.ndarray:
-        # x1 = (anchor_x - left) * stride
-        # y1 = (anchor_y - top) * stride
-        # x2 = (anchor_x + right) * stride
-        # y2 = (anchor_y + bottom) * stride
-        boxes_raw[:, 0:1] = self.anchor_xy[:, 0:1] - boxes_raw[:, 0:1]
-        boxes_raw[:, 1:2] = self.anchor_xy[:, 1:2] - boxes_raw[:, 1:2]
-        boxes_raw[:, 2:3] += self.anchor_xy[:, 0:1]
-        boxes_raw[:, 3:4] += self.anchor_xy[:, 1:2]
+    def bbox_anchor(self, bbox_concat:np.ndarray) -> np.ndarray:
+        bbox_concat = bbox_concat.swapaxes(0, 1) # (4, N) -> (N, 4)
 
-        boxes_raw *= self.anchor_stride # 乘以步长，转为像素坐标
-        return boxes_raw
+        np.subtract(self.anchor_xy, bbox_concat[..., 0:2], out=bbox_concat[..., 0:2])
+        np.add(self.anchor_xy, bbox_concat[..., 2:4], out=bbox_concat[..., 2:4])
 
-    def kpts_anchor(self, kpts_raw:np.ndarray) -> np.ndarray:
-        # kpts_raw [N, 51]
-        # x = (anchor_x + raw_x) * stride
-        # y = (anchor_y + raw_y) * stride
+        np.multiply(bbox_concat, self.anchor_stride, out=bbox_concat)
+        
+        boxes = bbox_concat
+        return boxes
+
+    def kpts_anchor(self, kpts_concat:np.ndarray) -> np.ndarray:
+        kpts_raw = kpts_concat.swapaxes(0, 1) # (51, N) -> (N, 51)
+
         kpts_raw[..., 0::3] += self.anchor_xy[:, 0:1]
         kpts_raw[..., 1::3] += self.anchor_xy[:, 1:2]
 
@@ -171,7 +155,7 @@ class Yolo26Pose:
         kpts_raw[..., 1::3] *= self.anchor_stride
 
         kpts = kpts_raw.reshape(-1, 17, 3)
-        kpts[:, :, 2] = 1.0 / (1.0 + np.exp(-kpts[:, :, 2]))  # sigmoid
+        kpts[..., 2] = 1.0 / (1.0 + np.exp(-kpts[..., 2]))  # sigmoid
 
         return kpts.reshape(-1, 51)
 
@@ -182,23 +166,22 @@ class Yolo26Pose:
                 return None
 
         outputs = [infer_output[i] for i in self.output_order] 
-        outputs = self.contact_outputs(outputs) # bbox, class, kpts
 
         # 分离边界框坐标、分数、关键点
-        boxes_raw = np.reshape(outputs[0], (4, self.total_anchors)).swapaxes(0, 1)  # [N, 4]
-        cls_raw = np.reshape(outputs[1], (1, self.total_anchors)).swapaxes(0, 1)  # [N, 1]
-        kpts_raw = np.reshape(outputs[2], (51, self.total_anchors)).swapaxes(0, 1)  # [N, 51]
-        
+        bbox_concat = np.concatenate([arr.reshape(4, -1) for arr in outputs[:3]], axis=-1) # (4, N)
+        cls_concat = np.concatenate([arr.reshape(1, -1) for arr in outputs[3:6]], axis=-1) # (80, N)
+        kpts_concat = np.concatenate([arr.reshape(51, -1) for arr in outputs[6:9]], axis=-1) # (51, N)
+
         # bbox 解码
-        boxes = self.bbox_anchor(boxes_raw)
-        keypoints = self.kpts_anchor(kpts_raw)
+        boxes = self.bbox_anchor(bbox_concat)
+        keypoints = self.kpts_anchor(kpts_concat)
 
         # 模型已内置 Sigmoid，class scores 直接使用
-        cls_scores = cls_raw
+        cls_scores = cls_concat
 
         # 每锚框的最佳类别和分数
-        class_ids = np.argmax(cls_scores, axis=1)
-        max_scores = cls_scores[self.class_scores_arange, class_ids]
+        class_ids = np.argmax(cls_scores, axis=0)
+        max_scores = cls_scores[class_ids, self.class_scores_arange]
 
         # 置信度阈值过滤
         mask = max_scores > self.conf_thresh
