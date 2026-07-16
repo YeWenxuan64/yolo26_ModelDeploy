@@ -55,7 +55,7 @@ if __name__ == '__main__':
     onnx_to_qnn = OnnxToQNN(model_path, qnn_model, DATASET_PATH)
     onnx_to_qnn.set_quantization_method(param_quant_method='sqnr', act_quant_method='entropy')
 
-    onnx_to_qnn.set_do_accuracy_analysis([str(parent_dir / 'datasets/bus.jpg')])
+    #onnx_to_qnn.set_do_accuracy_analysis([str(parent_dir / 'datasets/bus.jpg')])
 
     onnx_to_qnn.convert(mean_rgb=[[0, 0, 0]], std_rgb=[[255, 255, 255]])
-    #onnx_to_qnn.clean()
+    onnx_to_qnn.clean()
