@@ -194,8 +194,8 @@ python Yolo26_onnx2qnn.py --yolo_type yolo
 
 ## 🧠 推理
 
-推理后端依赖 [Edge_Inferencer](https://github.com/YeWenxuan64/Edge_Inferencer) 模块，支持 ONNX Runtime 和 NPU 推理切换。<br>
-推理后端的部署与使用，详见 [Edge_Inferencer README.md](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md)
+推理后端依赖 [edge_inferencer](https://github.com/YeWenxuan64/edge_inferencer) 模块，支持 ONNX Runtime 和 NPU 推理切换。<br>
+推理后端的部署与使用，详见 [edge_inferencer README.md](https://github.com/YeWenxuan64/edge_inferencer/blob/main/README.md)
 
 两个推理入口，分别对应 Detect 和 Pose 任务。内置实时视频流演示，按 `q` 退出
 
@@ -304,7 +304,7 @@ python yolo26_pytorch_test.py
 > - 后处理时间为将推理结果处理为**可用数据**（如 bbox、class、score 等）的时间
 > - 推理时间和后处理时间**不包括**预处理时间，如缩放图像、bgr 转 rgb、nwc 转 nhwc、归一化等，**也不包括**拷贝数据时间
 > - 并发推理时间**包含**推理时间、后处理时间以及拷贝数据时间，但**不包括**预处理时间
-> - 高通平台推理相关数据**存疑**，部分原因可参考[高通 QAI AppBuilder 并发推理的局限性](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md#%EF%B8%8F-%E9%AB%98%E9%80%9A-qai-appbuilder-%E5%B9%B6%E5%8F%91%E6%8E%A8%E7%90%86%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7)。仅供参考
+> - 高通平台推理相关数据**存疑**，部分原因可参考[高通 QAI AppBuilder 并发推理的局限性](https://github.com/YeWenxuan64/edge_inferencer/blob/main/README.md#%EF%B8%8F-%E9%AB%98%E9%80%9A-qai-appbuilder-%E5%B9%B6%E5%8F%91%E6%8E%A8%E7%90%86%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7)。仅供参考
 
 | 平台 | 芯片 | 模型 | 精度 | 输入尺寸 (H×W) | 推理时间 | 后处理时间 | 并发推理 |
 |------|------|------|------|----------------|----------|------------|------|

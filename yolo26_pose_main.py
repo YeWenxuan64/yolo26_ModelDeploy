@@ -22,7 +22,7 @@ class temporary_sys_path:
             sys.path.remove(self.new_path)
 
 with temporary_sys_path(current_dir.parent):
-    from Edge_Inferencer.ai_inferencer import AIInferencer, timeit
+    from edge_inferencer.ai_inferencer import AIInferencer, timeit
 
 
 
