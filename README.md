@@ -1,4 +1,5 @@
 # Yolo26 ModelDeploy
+![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=pink)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -12,22 +13,25 @@
 
 > 同时本项目也是本小姐🍃的项目 [Focus-Finder](https://github.com/YeWenxuan64/Focus-Finder) 的模型部署部分喵~
 
+![yolo26s-det_result](./images/yolo26s-pose_det.webp)
+
 ---
 
 ### 🧬 关于 YOLO26
 
-**YOLO26** 是基于 [Ultralytics](https://docs.ultralytics.com/) 框架训练的轻量级目标检测与姿态估计模型，沿用 YOLO 系列经典的 anchor-free 检测头设计。本模块选用 **YOLO26s**（小模型），在精度与推理速度之间取得良好平衡，专为边缘端 NPU 部署优化。
+**YOLO26** 是基于 [Ultralytics](https://docs.ultralytics.com/) 框架训练的轻量级视觉模型，支持目标检测、实例分割、姿态估计、旋转框检测、图像分类等多种视觉任务。
 
-YOLO26 支持的视觉任务：
+本模块聚焦其中两项任务，选用 **YOLO26s**（小模型），在精度与推理速度之间取得良好平衡，专为边缘端 NPU 部署优化：
 
 | 任务 | 说明 | 输出 |
 |------|------|------|
 | **Detect（目标检测）** | 识别并定位图像中的物体 | 边界框 + 类别（COCO 80 类） |
 | **Pose（姿态估计）** | 检测人体关键点 | 边界框 + 17 个关键点坐标 |
 
-> **注：**
-> YOLO 系列历经多个团队迭代：YOLOv1–v4 由 Joseph Redmon 团队开创；YOLOv6 由美团视觉智能部提出；YOLOv7/v9 由 Chien-Yao Wang 团队研发；YOLOv8/11/12 等近期版本由 Ultralytics 主导发布。YOLO 的发展是整个社区共同努力的成果。
-> 本模块的 YOLO26s 基于标准 Ultralytics 框架训练，ONNX 导出后经过模型裁剪等优化，以适配 Rockchip / Qualcomm NPU。
+> **注：**<br>
+> YOLO 系列各版本由不同团队迭代开发，是社区共同努力的成果。<br>
+>
+> 本模块的 YOLO26s 基于标准 Ultralytics 框架，ONNX 导出后经过模型裁剪等优化，再转换以适配 Rockchip / Qualcomm NPU。
 
 ---
 
@@ -300,6 +304,7 @@ python yolo26_pytorch_test.py
 > - 后处理时间为将推理结果处理为可用数据（如 bbox、class、score 等）的时间
 > - 推理时间和后处理时间**不包括**预处理时间，如缩放图像、bgr 转 rgb、nwc 转 nhwc、归一化等，**也不包括**拷贝数据时间
 > - 并发推理时间**包含**推理时间、后处理时间以及拷贝数据时间，但不包括预处理时间
+> - 高通相关数据存疑，部分原因可参考[高通 QAI AppBuilder 并发推理的局限性](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md#%EF%B8%8F-%E9%AB%98%E9%80%9A-qai-appbuilder-%E5%B9%B6%E5%8F%91%E6%8E%A8%E7%90%86%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7)，仅供参考
 
 | 平台 | 芯片 | 模型 | 精度 | 输入尺寸 (H×W) | 推理时间 | 后处理时间 | 并发推理 |
 |------|------|------|------|----------------|----------|------------|------|
@@ -326,6 +331,17 @@ python yolo26_pytorch_test.py
 > 💡 **如何获取实际数据：** 
 > - 运行 `yolo26_main.py` / `yolo26_pose_main.py` 时终端会实时输出 FPS，记录稳定后的数值即可。
 > - 使用 `VizTracer` 工具 Tracer 要运行的文件，之后浏览统计并统计结果
+
+---
+
+### 🔧 为什么部署 YOLO26 需要魔改？
+
+NPU 对部分算子的计算支持有限（如数据搬运类算子，取模算子），直接导出原生 YOLO26 模型会导致推理性能下降甚至失败。本项目对模型做了以下适配（**不影响最终输出结果，无需重新训练**）：
+
+| 改动 | 原因 | 方案 |
+|------|------|------|
+| **移除后处理结构** | 模型内置的后处理（坐标解码）涉及动态形状和控制流，NPU 无法高效执行 | 全部剥离至 CPU 侧，NPU 只跑纯推理部分 |
+
 
 ---
 
