@@ -7,6 +7,8 @@
 ![Model](https://img.shields.io/badge/Model-YOLO26s%20(Detect%20+%20Pose)-red)
 ![Quantization](https://img.shields.io/badge/Quant-INT8%20|%20FP16-lightgrey)
 
+⚠️Pre-release Warning⚠️
+
 ## 📖 概述
 
 本模块聚焦 YOLO26 的 **目标检测 (Detect)** 和 **姿态估计 (Pose)** 两种任务，提供从 PyTorch 到边缘端 NPU (Rockchip NPU / Qualcomm HTP) 的完整转换与推理流程。
@@ -302,8 +304,8 @@ python yolo26_pytorch_test.py
 
 | 平台 | 芯片 | 模型 | 精度 | 输入尺寸 (H×W) | 推理时间(ms) | 后处理时间(ms) | 并发推理时间(ms) |
 |------|------|------|------|----------------|----------|------------|------|
-| Rockchip NPU | RK3588 | yolo26s | INT8 | 320×640 | — | — | — |
-| Rockchip NPU | RK3588 | yolo26s-pose | INT8 | 320×640 | — | — | — |
+| Rockchip NPU | RK3588 | yolo26s | INT8 | 320×640 | 19.40 | 2.09 | 12.21@2tasks<br>6.87@3tasks |
+| Rockchip NPU | RK3588 | yolo26s-pose | INT8 | 320×640 | 20.49 | 2.07 | 11.55@2task<br>6.43@3tasks |
 | Qualcomm HTP | QCS6490 | yolo26s | INT8 | 320×640 | 11.29 | 1.49 | 7.78@2tasks<br>5.17@3tasks |
 | Qualcomm HTP | QCS6490 | yolo26s-pose | INT8 | 320×640 | 11.14 | 1.30 | 6.74@2tasks<br>4.53@3tasks |
 
