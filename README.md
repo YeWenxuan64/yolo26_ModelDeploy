@@ -2,10 +2,10 @@
 ![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=pink)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Rockchip%20|%20Qualcomm-orange)
 ![Model](https://img.shields.io/badge/Model-YOLO26s%20(Detect%20+%20Pose)-red)
 ![Quantization](https://img.shields.io/badge/Quant-INT8%20|%20FP16-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ⚠️Pre-release Warning⚠️
 
@@ -324,7 +324,7 @@ NPU 对部分算子的计算支持有限（如数据搬运类算子，取模算�
 ---
 
 
-## License
+## 📄 License
 
 MIT License — Copyright (c) 2026 叶文轩
 
