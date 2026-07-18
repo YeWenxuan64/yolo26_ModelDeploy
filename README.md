@@ -55,7 +55,7 @@
 - [Edge_ModelDeploy](https://github.com/YeWenxuan64/Edge_ModelDeploy) — 模型转换工具链
 
 
-**本子模块：**`Yolo26_ModelDeploy` 聚焦 YOLO26 系列模型（Detect + Pose）的完整部署链路：
+**本子模块：**`yolo26_ModelDeploy` 聚焦 YOLO26 系列模型（Detect + Pose）的完整部署链路：
 
 | 阶段 | 说明 | 脚本 |
 |------|------|------|
@@ -76,7 +76,7 @@ Edge_ModelDeploy/                   # 父项目根目录
 ├── requirements.txt                 # 父项目 Python 依赖
 ├── LICENSE
 ├── ...
-└── Yolo26_ModelDeploy/              # 本模块根目录
+└── yolo26_ModelDeploy/              # 本模块根目录
     ├── Yolo26_pytorch2onnx.py       # PyTorch → ONNX 导出 + 优化
     ├── Yolo26_onnx2rknn.py          # ONNX → RKNN（使用父项目 utilities/onnx_to_rknn.py）
     ├── Yolo26_onnx2qnn.py           # ONNX → QNN（使用父项目 utilities/onnx_to_qnn.py）
@@ -114,13 +114,13 @@ cd Edge_ModelDeploy
 ### 2. 递归克隆本模块
 
 ```bash
-git clone --recurse-submodules https://github.com/YeWenxuan64/Yolo26_ModelDeploy.git
+git clone --recurse-submodules https://github.com/YeWenxuan64/yolo26_ModelDeploy.git
 ```
 
-> 会递归克隆 `ultralytics` 子模块（位于 `Yolo26_ModelDeploy/models_convert/original/ultralytics`）<br>
+> 会递归克隆 `ultralytics` 子模块（位于 `yolo26_ModelDeploy/models_convert/original/ultralytics`）<br>
 > 如果 submodule 未拉取，可手动拉取：
 > ```bash
-> cd Yolo26_ModelDeploy
+> cd yolo26_ModelDeploy
 > git submodule update --init --recursive
 > ```
 > 或查看 [models_convert/original/README.md](./models_convert/original/README.md)
@@ -140,7 +140,7 @@ git clone --recurse-submodules https://github.com/YeWenxuan64/Yolo26_ModelDeploy
 ### 步骤 1: PyTorch → ONNX
 
 ```bash
-cd Yolo26_ModelDeploy
+cd yolo26_ModelDeploy
 python Yolo26_pytorch2onnx.py --yolo_type yolo
 # or python Yolo26_pytorch2onnx.py --yolo_type yolo-pose
 ```
@@ -194,8 +194,8 @@ python Yolo26_onnx2qnn.py --yolo_type yolo
 
 ## 🧠 推理
 
-推理后端依赖 [edge_inferencer](https://github.com/YeWenxuan64/edge_inferencer) 模块，支持 ONNX Runtime 和 NPU 推理切换。<br>
-推理后端的部署与使用，详见 [edge_inferencer README.md](https://github.com/YeWenxuan64/edge_inferencer/blob/main/README.md)
+推理后端依赖 [Edge_Inferencer](https://github.com/YeWenxuan64/Edge_Inferencer) 模块，支持 ONNX Runtime 和 NPU 推理切换。<br>
+推理后端的部署与使用，详见 [Edge_Inferencer README.md](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md)
 
 两个推理入口，分别对应 Detect 和 Pose 任务。内置实时视频流演示，按 `q` 退出
 
@@ -298,7 +298,7 @@ python yolo26_pytorch_test.py
 
 ### ⚡ 性能数据
 
-[性能测试说明](https://github.com/YeWenxuan64/edge_inferencer/blob/main/PERFORMANCE.md)
+[性能测试说明](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/PERFORMANCE.md)
 
 | 平台 | 芯片 | 模型 | 精度 | 输入尺寸 (H×W) | 推理时间(ms) | 后处理时间(ms) | 并发推理时间(ms) |
 |------|------|------|------|----------------|----------|------------|------|
