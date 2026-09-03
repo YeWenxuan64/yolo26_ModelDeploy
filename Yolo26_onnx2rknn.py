@@ -57,7 +57,7 @@ if __name__ == '__main__':
     onnx_to_rknn = OnnxToRKNN(model_path, rknn_model, DATASET_PATH, TARGET_PLATFORM)
     #onnx_to_rknn.set_do_accuracy_analysis('/home/yewenxuan/convert_models/convert_models/datasets/bus.jpg')
 
-    onnx_to_rknn.extra_optimize(flash_attention=True)
+    onnx_to_rknn.set_quantization_method(flash_attention=True)
 
     onnx_to_rknn.convert(mean_rgb=[[0, 0, 0]], std_rgb=[[255, 255, 255]])
     onnx_to_rknn.clean()

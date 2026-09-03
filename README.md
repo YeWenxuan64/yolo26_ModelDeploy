@@ -174,7 +174,7 @@ python Yolo26_onnx2rknn.py --yolo_type yolo
 
 输出：`models_convert/rknn/yolo26s_i8[1,320,640,3].rknn`
 
-> RKNN 转换启用了 `extra_optimize(flash_attention=True)` 以优化 Attention 计算。
+> RKNN 转换启用了 `set_quantization_method(flash_attention=True)` 以优化 Attention 计算。
 
 **可配置参数**：修改脚本中 `OnnxToRKNN` 对象方法的参数<br>
 详见父项目 [Edge_ModelDeploy README_TOOLUSE.md](https://github.com/YeWenxuan64/Edge_ModelDeploy/blob/main/README_TOOLUSE.md)
