@@ -2,10 +2,9 @@
 ![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=pink)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Platform](https://img.shields.io/badge/Platform-Rockchip%20|%20Qualcomm-orange)
-![Model](https://img.shields.io/badge/Model-YOLO26s%20(Detect%20+%20Pose)-red)
-![Quantization](https://img.shields.io/badge/Quant-INT8%20|%20FP16-lightgrey)
-![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-Rockchip%20|%20Qualcomm-blue)
+![Model](https://img.shields.io/badge/Model-YOLO26s%20(Detect%20+%20Pose)-0B23A9)
+![License](https://img.shields.io/badge/License-MIT-brightgreen)
 
 ⚠️Pre-release Warning⚠️
 
@@ -40,10 +39,9 @@
 ### ✨ 功能亮点
 
 - **双任务支持** — 目标检测（COCO 80 类）+ 姿态估计（COCO 17 关键点），同一套工具链
-- **全链路自动化** — 一条命令完成 `.pt` → ONNX → RKNN / QNN，`set_config()` 自动管理配置，无需手动编辑 yaml
+- **全链路自动化** — 一条命令完成 `.pt` → ONNX → RKNN / QNN，可调参数集中在脚本顶部配置区，无需手动编辑 yaml
 - **双平台部署** — Rockchip NPU（RK3588/RK3576）+ Qualcomm HTP（QCS6490），INT8 量化
-- **Sigmoid 重排优化** — `move_sigmoid_into_concat_branches()` 将 Concat 后的 Sigmoid 前移到各分支 Conv 后，便于 NPU 工具链融合 Conv+Sigmoid
-- **ONNX 模型裁剪** — `trim_model_to_outputs()` 截断多余后处理节点，精简计算图
+- **PyTorch 层直出部署图** — `YOLO26RawExport` 直接调用 one2one 各尺度分支，Sigmoid 在 PyTorch 侧完成，导出图天然呈 Conv+Sigmoid 相邻，便于 NPU 工具链融合
 - **onnxslim 瘦身** — 自动移除冗余算子、折叠常量，减小模型体积
 - **输出顺序自适应** — `identify_output_order()` 按张量尺寸自动匹配模型输出，兼容不同推理后端
 - **Anchor-based 解码** — `build_anchor_grids()` 预计算三检测头锚点网格，高效还原边界框
@@ -61,7 +59,7 @@
 
 | 阶段 | 说明 | 脚本 |
 |------|------|------|
-| **PyTorch → ONNX** | 利用 ultralytics 导出 ONNX，Sigmoid 重排 + 模型裁剪 + onnxslim 瘦身 | [`Yolo26_pytorch2onnx.py`](./Yolo26_pytorch2onnx.py) |
+| **PyTorch → ONNX** | PyTorch 层直出各尺度原始分支图（Conv+Sigmoid 相邻）+ onnxslim 瘦身 | [`Yolo26_pytorch2onnx.py`](./Yolo26_pytorch2onnx.py) |
 | **ONNX → RKNN** | 使用父项目 `utilities/onnx_to_rknn.py`，INT8 量化 + FlashAttention 优化，部署至 Rockchip NPU | [`Yolo26_onnx2rknn.py`](./Yolo26_onnx2rknn.py) |
 | **ONNX → QNN** | 使用父项目 `utilities/onnx_to_qnn.py`，INT8 量化（SQNR + Entropy），部署至 Qualcomm HTP | [`Yolo26_onnx2qnn.py`](./Yolo26_onnx2qnn.py) |
 | **推理** | 加载 ONNX / RKNN / QNN 模型，实时检测 + 可视化 | [`yolo26_main.py`](./yolo26_main.py) / [`yolo26_pose_main.py`](./yolo26_pose_main.py) |
@@ -90,11 +88,11 @@ Edge_ModelDeploy/                   # 父项目根目录
     │   │   ├── ... .pt              # PyTorch 权重（会在转换时由 ultralytics 自动下载）
     │   │   └── ultralytics/         # ultralytics/ultralytics submodule
     │   ├── onnx/
-    │   │   └── ...   # 导出后的 ONNX
+    │   │   └── ...                  # 导出后的 ONNX
     │   ├── rknn/
-    │   │   └── ...   # RKNN 模型
+    │   │   └── ...                  # RKNN 模型
     │   └── qnn/
-    │       └── ...   # QNN 模型
+    │       └── ...                  # QNN 模型
     ├── README.md
     └── LICENSE
 ```
@@ -147,22 +145,20 @@ python Yolo26_pytorch2onnx.py --yolo_type yolo
 # or python Yolo26_pytorch2onnx.py --yolo_type yolo-pose
 ```
 
-**可修改的参数** — 编辑 `Yolo26_pytorch2onnx.py` 中 `export()` 函数内的 `set_config()` 调用：
+**可修改的参数** — 编辑 `Yolo26_pytorch2onnx.py` 顶部「导出参数」配置区：
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `imgsz` | `[320, 640]` | 输入图像尺寸 `[H, W]` |
-| `batch` | `1` | 批次大小 |
-| `max_det` | `256` | 每图最大检测数 |
+| `IMG_SIZE` | `[320, 640]` | 输入图像尺寸 `[H, W]`，需为 32 的倍数 |
+| `BATCH` | `1` | 批次大小 |
+| `ONNX_OPSET` | `13` | ONNX opset 版本 |
 
-> `set_config()` 从 `ultralytics/cfg/default.yaml` 加载默认配置并动态覆写，**无需手动编辑 config yaml 文件**。
+**导出流程** — `export_raw()` + `simplify()` 自动完成以下步骤：
+1. **模型准备** — 沿用官方 export 前置：`fuse()` 融合 Conv+BN 并删除 one2many 分支，C2f/C3k2 改用 `forward_split`
+2. **PyTorch 层直出** — head 临时替换为 `Identity` 取得 `[P3, P4, P5]`，手动调用各尺度 one2one 分支，cls 分支的 Sigmoid 在 PyTorch 侧完成
+3. **onnxslim 瘦身** — 精简算子、折叠常量，再做 shape inference 与 `check_model(full_check=True)`
 
-**ONNX 后处理优化** — `modify()` 函数自动执行以下步骤：
-1. **Sigmoid 重排** — `move_sigmoid_into_concat_branches()` 将 `/model.23/Concat_1` 后的 Sigmoid 移到各分支 Conv 后
-2. **模型裁剪** — `trim_model_to_outputs()` 只保留 bbox + class（detect）或 bbox + class + kpts（pose）输出，截断冗余后处理
-3. **onnxslim 瘦身** — 移除冗余算子、折叠常量
-
-输出：`models_convert/onnx/yolo26s_[1,3,320,640].onnx`
+输出：`models_convert/onnx/yolo26s_[1,3,320,640].onnx`（detect 6 个输出 `box_p3~p5` / `cls_p3~p5`，pose 额外 `kpts_p3~p5`，顺序固定为 box → cls → kpts）
 
 
 ### 步骤 2.1: ONNX → RKNN
@@ -326,7 +322,7 @@ NPU 对部分算子的计算支持有限（如数据搬运类算子，取模算�
 
 ## 📄 License
 
-MIT License — Copyright (c) 2026 叶文轩
+[MIT License](./LICENSE) — Copyright (c) 2026 叶文轩
 
 各子模块的模型、代码，以及数据集遵循其原始 License。<br>
 ultralytics/ultralytics仓库的许可证：
