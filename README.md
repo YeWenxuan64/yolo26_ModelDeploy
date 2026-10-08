@@ -104,7 +104,7 @@ cd Edge_ModelDeploy
 ```
 
 ### 1.1 安装依赖
-按照父项目 [Edge_ModelDeploy README.md](../README.md) 的指示，进行**依赖安装与量化校准数据集的准备**
+按照父项目 [Edge_ModelDeploy README.md](https://github.com/YeWenxuan64/Edge_ModelDeploy/blob/main/README.md) 的指示，进行**依赖安装与量化校准数据集的准备**
 
 ### 2. 递归克隆本模块
 
