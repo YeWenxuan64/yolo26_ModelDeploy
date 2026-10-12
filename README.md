@@ -35,7 +35,7 @@
 
 - **双任务支持** — 目标检测（COCO 80 类）+ 姿态估计（COCO 17 关键点），同一套工具链
 - **全链路自动化** — 一条命令完成 `.pt` → ONNX → RKNN / QNN，可调参数集中在脚本顶部配置区，无需手动编辑 yaml
-- **双平台部署** — Rockchip NPU（RK3588/RK3576）+ Qualcomm HTP（QCS6490），INT8 量化
+- **多平台部署** — Rockchip NPU（RK3588/RK3576）+ Qualcomm HTP（QCS6490），INT8 量化
 - **PyTorch 层直出部署图** — `YOLO26RawExport` 直接调用 one2one 各尺度分支，Sigmoid 在 PyTorch 侧完成，导出图天然呈 Conv+Sigmoid 相邻，便于 NPU 工具链融合
 - **onnxslim 瘦身** — 自动移除冗余算子、折叠常量，减小模型体积
 - **输出顺序自适应** — `identify_output_order()` 按张量尺寸自动匹配模型输出，兼容不同推理后端
@@ -63,31 +63,31 @@
 ## 🏗️ 项目结构
 
 ```
-Edge_ModelDeploy/                   # 父项目根目录
-├── datasets/                        # 量化校准数据集
-├── utilities/                       # 父项目工具链
-├── README.md                        # 父项目 README
-├── README_TOOLUSE.md
-├── requirements.txt                 # 父项目 Python 依赖
+Edge_ModelDeploy/               # 父项目根目录
+├── docs/                       # 父项目文档
+├── datasets/                   # 量化校准数据集
+├── utilities/                  # 父项目工具链
+├── README.md                   # 父项目 README
+├── requirements_*.txt          # 父项目 Python 依赖
 ├── LICENSE
 ├── ...
-└── yolo26_ModelDeploy/              # 本模块根目录
-    ├── Yolo26_pytorch2onnx.py       # PyTorch → ONNX 导出 + 优化
-    ├── Yolo26_onnx2rknn.py          # ONNX → RKNN（使用父项目 utilities/onnx_to_rknn.py）
-    ├── Yolo26_onnx2qnn.py           # ONNX → QNN（使用父项目 utilities/onnx_to_qnn.py）
-    ├── yolo26_main.py               # 目标检测推理 + 可视化
-    ├── yolo26_pose_main.py          # 姿态估计推理 + 可视化
-    ├── yolo26_pytorch_test.py       # PyTorch 模型快速验证
+└── yolo26_ModelDeploy/         # 本模块根目录
+    ├── Yolo26_pytorch2onnx.py  # PyTorch → ONNX 导出 + 优化
+    ├── Yolo26_onnx2rknn.py     # ONNX → RKNN（使用父项目 utilities/onnx_to_rknn.py）
+    ├── Yolo26_onnx2qnn.py      # ONNX → QNN（使用父项目 utilities/onnx_to_qnn.py）
+    ├── yolo26_main.py          # 目标检测推理 + 可视化
+    ├── yolo26_pose_main.py     # 姿态估计推理 + 可视化
+    ├── yolo26_pytorch_test.py  # PyTorch 模型快速验证
     ├── models_convert/
     │   ├── original/
-    │   │   ├── ... .pt              # PyTorch 权重（会在转换时由 ultralytics 自动下载）
-    │   │   └── ultralytics/         # ultralytics/ultralytics submodule
+    │   │   ├── ... .pt         # PyTorch 权重（会在转换时由 ultralytics 自动下载）
+    │   │   └── ultralytics/    # ultralytics/ultralytics submodule
     │   ├── onnx/
-    │   │   └── ...                  # 导出后的 ONNX
+    │   │   └── ...             # 导出后的 ONNX
     │   ├── rknn/
-    │   │   └── ...                  # RKNN 模型
+    │   │   └── ...             # RKNN 模型
     │   └── qnn/
-    │       └── ...                  # QNN 模型
+    │       └── ...             # QNN 模型
     ├── README.md
     └── LICENSE
 ```
@@ -165,11 +165,6 @@ python Yolo26_onnx2rknn.py --yolo_type yolo
 
 输出：`models_convert/rknn/yolo26s_i8[1,320,640,3].rknn`
 
-> RKNN 转换启用了 `set_quantization_method(flash_attention=True)` 以优化 Attention 计算。
-
-**可配置参数**：修改脚本中 `OnnxToRKNN` 对象方法的参数<br>
-详见父项目 [Edge_ModelDeploy README_TOOLUSE.md](https://github.com/YeWenxuan64/Edge_ModelDeploy/blob/main/README_TOOLUSE.md)
-
 
 ### 步骤 2.2: ONNX → QNN
 
@@ -180,17 +175,27 @@ python Yolo26_onnx2qnn.py --yolo_type yolo
 
 输出：`models_convert/qnn/yolo26s_i8[1,320,640,3].bin`
 
-> QNN 量化策略：`param_quant_method='sqnr'`（参数量化）+ `act_quant_method='entropy'`（激活量化）。
-
-**可配置参数**：修改脚本中 `OnnxToQNN` 对象方法的参数<br>
-详见父项目 [Edge_ModelDeploy README_TOOLUSE.md](https://github.com/YeWenxuan64/Edge_ModelDeploy/blob/main/README_TOOLUSE.md)
+**可配置参数**: 修改脚本中 `OnnxToRKNN`/`OnnxToQNN` 对象方法的参数<br>
+详见父项目 [Edge_ModelDeploy README_TOOLUSE.md](https://github.com/YeWenxuan64/Edge_ModelDeploy/blob/main/docs/TOOLUSE.md)
 
 ## 🧠 推理
 
-推理后端依赖 [Edge_Inferencer](https://github.com/YeWenxuan64/Edge_Inferencer) 模块，支持 ONNX Runtime 和 NPU 推理切换。<br>
-推理后端的部署与使用，详见 [Edge_Inferencer README.md](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md)
+### 前置：部署推理后端
 
-两个推理入口，分别对应 Detect 和 Pose 任务。内置实时视频流演示，按 `q` 退出
+按照 [Edge_Inferencer README.md](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/README.md) 克隆并部署项目。
+
+> ⚠️ **位置要求**：`Edge_Inferencer` 必须与本项目 `yolo26_ModelDeploy` 放在**同一级目录**：
+>
+> ```text
+> Some directory (e.g. Edge_ModelDeploy)/  # 父项目
+> ├── Edge_Inferencer/                     # 推理后端
+> └── yolo26_ModelDeploy/                  # 本模块
+>     ├── yolo26_main.py                   # 目标检测推理
+>     └── yolo26_pose_main.py              # 姿态估计推理
+> ```
+
+下面两个入口分别对应 Detect / Pose 任务，均为内置实时视频流演示（`timeit` FPS 统计，按 `q` 退出），
+默认加载 `models_convert/onnx/` 下的 ONNX 模型；板端运行时把脚本内 `model_path` 指向对应的 `.rknn` / `.bin` 即可。
 
 ### 🎯 目标检测
 
@@ -225,7 +230,7 @@ python yolo26_main.py
 **`release()` 方法：** 释放 NPU 资源
 
 - **可视化：** `draw_yolo()`，绘制边界框 + 类别标签 + 置信度
-- **预处理：** `resize_image()` 等比缩放 + 居中 padding（黑色填充）
+- **预处理：** `resize_image()` 等比缩放 + 居中填充/裁切
 - **后处理：** Anchor-based 解码 `bbox_anchor()` + `identify_output_order()` 输出顺序自适应
 
 
@@ -252,7 +257,7 @@ python yolo26_pose_main.py
 **`release()` 方法：** 释放 NPU 资源
 
 - **可视化：** `draw_yolo_pose()`，绘制边界框 + 17 关键点圆圈 + 19 条骨骼连线
-- **预处理：** `resize_image()` 等比缩放 + 居中 padding（黑色填充）
+- **预处理：** `resize_image()` 等比缩放 + 居中填充/裁切
 - **后处理：** Anchor-based 解码 `bbox_anchor()` + `kpts_anchor()` + `identify_output_order()` 输出顺序自适应
 
 
@@ -278,18 +283,9 @@ if result is not None:
     frame = draw_yolo(frame, result)
 ```
 
-
-### 🧪 PyTorch 模型快速验证
-
-```bash
-python yolo26_pytorch_test.py
-```
-
-使用原始 `.pt` 权重在视频流上运行推理，用于快速验证模型效果。
-
 ---
 
-### ⚡ 性能数据
+## ⚡ 性能数据
 
 [性能测试说明](https://github.com/YeWenxuan64/Edge_Inferencer/blob/main/PERFORMANCE.md)
 
@@ -301,21 +297,24 @@ python yolo26_pytorch_test.py
 | Qualcomm HTP | QCS6490 | yolo26s-pose | INT8 | 320×640 | 11.14 | 1.30 | 6.74@2tasks<br>4.53@3tasks |
 
 
----
+## 🔧 为什么部署 YOLO26 需要剥离检测头后处理？
 
-### 🔧 为什么部署 YOLO26 需要魔改？
-
-NPU 对部分算子的计算支持有限（如数据搬运类算子，取模算子），直接导出原生 YOLO26 模型会导致推理性能下降甚至失败。本项目对模型做了以下适配（**不影响最终输出结果，无需重新训练**）：
+本项目不改动原始 ultralytics 仓库，而是在导出脚本 `Yolo26_pytorch2onnx.py`（`YOLO26RawExport`）里重构导出图：原生检测头的后处理结构含有 NPU 低效或不支持的算子，故做了如下适配（**不影响输出结果，无需重训**）：
 
 | 改动 | 原因 | 方案 |
 |------|------|------|
-| **移除后处理结构** | 模型内置的后处理（坐标解码）涉及动态形状和控制流，NPU 无法高效执行 | 全部剥离至 CPU 侧，NPU 只跑纯推理部分 |
+| **剥离检测头后处理** | 内联解码涉及动态形状与控制流，NPU 无法高效执行 | head 换 `Identity`，手动调 `one2one` 各尺度分支直出 `box/cls(/kpts)_p3~p5`，解码移到 CPU |
+| **cls Sigmoid 前置** | 让 `Conv`+`Sigmoid` 相邻，便于 NPU 融合 | Sigmoid 在 PyTorch 侧完成，不进 ONNX 图 |
+| **C2f/C3k2 `forward_split`** | 原生前向产生 `Slice`，NPU 效率低 | 改用 `forward_split`，使 `Slice`→`Split` |
+| **`fuse()` 融合 + 删 one2many** | `Conv+BN` 融合减算子；`one2many` 纯推理冗余 | 融合卷积与 BN，删 `one2many` 只留 `one2one` |
+
+**链路：** `fuse()` → `forward_split` → head 换 `Identity` 直出 `[P3,P4,P5]` → 调 `one2one` 分支。NPU 只跑 backbone+neck+原始分支，anchors/DFL/topk 解码在 CPU。
 
 
 ---
 
 
-## 📄 License
+## 📄 许可证
 
 [MIT License](./LICENSE) — Copyright (c) 2026 叶文轩
 
