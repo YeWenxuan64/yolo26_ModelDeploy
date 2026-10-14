@@ -10,7 +10,7 @@
 
 ## 📖 概述
 
-本模块聚焦 YOLO26 的 **目标检测 (Detect)** 和 **姿态估计 (Pose)** 两种任务，提供从 PyTorch 到边缘端 NPU (Rockchip NPU / Qualcomm HTP) 的完整转换与推理流程。
+本模块聚焦 **YOLO26**（You Only Look Once）的 **目标检测** 和 **姿态估计** 两种任务，提供从 PyTorch 到边缘端 NPU (Rockchip NPU / Qualcomm HTP) 的完整转换与推理流程。
 
 > 同时本项目也是本小姐🍃的项目 [Focus-Finder](https://github.com/YeWenxuan64/Focus-Finder) 的模型部署部分喵~
 
@@ -35,11 +35,9 @@
 
 - **双任务支持** — 目标检测（COCO 80 类）+ 姿态估计（COCO 17 关键点），同一套工具链
 - **全链路自动化** — 一条命令完成 `.pt` → ONNX → RKNN / QNN，可调参数集中在脚本顶部配置区，无需手动编辑 yaml
-- **多平台部署** — Rockchip NPU（RK3588/RK3576）+ Qualcomm HTP（QCS6490），INT8 量化
-- **PyTorch 层直出部署图** — `YOLO26RawExport` 直接调用 one2one 各尺度分支，Sigmoid 在 PyTorch 侧完成，导出图天然呈 Conv+Sigmoid 相邻，便于 NPU 工具链融合
-- **onnxslim 瘦身** — 自动移除冗余算子、折叠常量，减小模型体积
-- **输出顺序自适应** — `identify_output_order()` 按张量尺寸自动匹配模型输出，兼容不同推理后端
-- **Anchor-based 解码** — `build_anchor_grids()` 预计算三检测头锚点网格，高效还原边界框
+- **多平台部署** — Rockchip NPU + Qualcomm HTP，INT8 量化
+- **PyTorch 层直出部署图** — `YOLO26RawExport` 直接调用 one2one 各尺度分支，将检测头后处理剥离
+- **兼容部署** — 将检测头后处理剥离至 CPU 执行，提高边缘架构的兼容性
 - **内置实时演示** — 开箱即用的视频流推理 + `timeit` FPS 统计，按 `q` 退出
 - **易于集成** — 提供 Python API 接口，三行代码即可嵌入自有项目
 
@@ -54,9 +52,9 @@
 
 | 阶段 | 说明 | 脚本 |
 |------|------|------|
-| **PyTorch → ONNX** | PyTorch 层直出各尺度原始分支图（Conv+Sigmoid 相邻）+ onnxslim 瘦身 | [`Yolo26_pytorch2onnx.py`](./Yolo26_pytorch2onnx.py) |
-| **ONNX → RKNN** | 使用父项目 `utilities/onnx_to_rknn.py`，INT8 量化 + FlashAttention 优化，部署至 Rockchip NPU | [`Yolo26_onnx2rknn.py`](./Yolo26_onnx2rknn.py) |
-| **ONNX → QNN** | 使用父项目 `utilities/onnx_to_qnn.py`，INT8 量化（SQNR + Entropy），部署至 Qualcomm HTP | [`Yolo26_onnx2qnn.py`](./Yolo26_onnx2qnn.py) |
+| **PyTorch → ONNX** | PyTorch 层直出各尺度原始分支图（Conv+Sigmoid 相邻）+ onnxslim 清理 | [`Yolo26_pytorch2onnx.py`](./Yolo26_pytorch2onnx.py) |
+| **ONNX → RKNN** | 使用父项目 `utilities/onnx_to_rknn.py`，INT8 量化，部署至 Rockchip NPU | [`Yolo26_onnx2rknn.py`](./Yolo26_onnx2rknn.py) |
+| **ONNX → QNN** | 使用父项目 `utilities/onnx_to_qnn.py`，INT8 量化，部署至 Qualcomm HTP | [`Yolo26_onnx2qnn.py`](./Yolo26_onnx2qnn.py) |
 | **推理** | 加载 ONNX / RKNN / QNN 模型，实时检测 + 可视化 | [`yolo26_main.py`](./yolo26_main.py) / [`yolo26_pose_main.py`](./yolo26_pose_main.py) |
 
 
@@ -151,7 +149,7 @@ python Yolo26_pytorch2onnx.py --yolo_type yolo
 **导出流程** — `export_raw()` + `simplify()` 自动完成以下步骤：
 1. **模型准备** — 沿用官方 export 前置：`fuse()` 融合 Conv+BN 并删除 one2many 分支，C2f/C3k2 改用 `forward_split`
 2. **PyTorch 层直出** — head 临时替换为 `Identity` 取得 `[P3, P4, P5]`，手动调用各尺度 one2one 分支，cls 分支的 Sigmoid 在 PyTorch 侧完成
-3. **onnxslim 瘦身** — 精简算子、折叠常量，再做 shape inference 与 `check_model(full_check=True)`
+3. **onnxslim 清理** — 精简算子、折叠常量，再做 shape inference 与 `check_model(full_check=True)`
 
 输出：`models_convert/onnx/yolo26s_[1,3,320,640].onnx`（detect 6 个输出 `box_p3~p5` / `cls_p3~p5`，pose 额外 `kpts_p3~p5`，顺序固定为 box → cls → kpts）
 
@@ -229,9 +227,9 @@ python yolo26_main.py
 
 **`release()` 方法：** 释放 NPU 资源
 
-- **可视化：** `draw_yolo()`，绘制边界框 + 类别标签 + 置信度
-- **预处理：** `resize_image()` 等比缩放 + 居中填充/裁切
-- **后处理：** Anchor-based 解码 `bbox_anchor()` + `identify_output_order()` 输出顺序自适应
+- **预处理：** `resize_image()` 居中等比缩放 + 裁切/填充
+- **后处理：** `bbox_anchor()` 锚点解码 → 置信度阈值过滤 → 坐标还原回原图
+- **可视化：** `draw_yolo()`，绘制 bbox、class、score
 
 
 ### 🦴 姿态估计
@@ -256,9 +254,9 @@ python yolo26_pose_main.py
 
 **`release()` 方法：** 释放 NPU 资源
 
-- **可视化：** `draw_yolo_pose()`，绘制边界框 + 17 关键点圆圈 + 19 条骨骼连线
-- **预处理：** `resize_image()` 等比缩放 + 居中填充/裁切
-- **后处理：** Anchor-based 解码 `bbox_anchor()` + `kpts_anchor()` + `identify_output_order()` 输出顺序自适应
+- **预处理：** `resize_image()` 居中等比缩放 + 裁切/填充
+- **后处理：** 同 `Yolo26` 类，另经 `kpts_anchor()` 解码 17 个关键点
+- **可视化：** `draw_yolo_pose()`，绘制 bbox、class、score、关键点与骨骼连线
 
 
 ### 🔗 尝试集成到自己的项目
